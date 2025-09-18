@@ -14,6 +14,26 @@ const connectDB = async () => {
   }
 };
 
-module.exports = connectDB;
+// Get tenant database connection
+const getTenantDB = async (tenantName) => {
+  const dbName = `tenants_${tenantName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+  
+  // Check if connection already exists
+  if (mongoose.connections.some(conn => conn.name === dbName)) {
+    return mongoose.connections.find(conn => conn.name === dbName);
+  }
+  
+  // Create new connection if doesn't exist
+  const conn = mongoose.createConnection(process.env.MONGODB_URI.replace('rapidrepo', dbName));
+  
+  await new Promise((resolve, reject) => {
+    conn.once('connected', resolve);
+    conn.once('error', reject);
+  });
+
+  return conn;
+};
+
+module.exports = { connectDB, getTenantDB };
 
 

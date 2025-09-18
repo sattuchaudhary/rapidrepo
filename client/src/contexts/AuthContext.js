@@ -96,7 +96,7 @@ export const AuthProvider = ({ children }) => {
     try {
       if (state.token) {
         setAuthToken(state.token);
-        const res = await axios.get('http://localhost:5000/api/auth/profile');
+        const res = await axios.get('http://localhost:5000/api/unified-auth/profile');
         dispatch({
           type: AUTH_ACTIONS.USER_LOADED,
           payload: res.data.data.user
@@ -110,12 +110,15 @@ export const AuthProvider = ({ children }) => {
     }
   }, [state.token]);
 
-  // Login user
-  const login = async (email, password) => {
+  // Unified Login user (works for all user types)
+  const login = async (identifier, password) => {
     try {
       dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: true });
       
-      const res = await axios.post('http://localhost:5000/api/auth/login', { email, password });
+      const res = await axios.post('http://localhost:5000/api/unified-auth/login', { 
+        identifier, 
+        password 
+      });
       
       dispatch({
         type: AUTH_ACTIONS.LOGIN_SUCCESS,
@@ -123,7 +126,11 @@ export const AuthProvider = ({ children }) => {
       });
       
       toast.success('Login successful!');
-      return { success: true };
+      return { 
+        success: true, 
+        redirectTo: res.data.data.redirectTo,
+        userType: res.data.data.user.userType
+      };
     } catch (error) {
       const message = error.response?.data?.message || 'Login failed';
       dispatch({ type: AUTH_ACTIONS.LOGIN_FAIL, payload: message });

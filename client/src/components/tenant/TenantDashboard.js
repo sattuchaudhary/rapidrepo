@@ -28,6 +28,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
+import { blue } from '@mui/material/colors';
 
 const TenantDashboard = () => {
   const { user } = useAuth();
@@ -119,11 +120,11 @@ const TenantDashboard = () => {
       </Box>
     );
   }
-
+  
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
+      <Box sx={{ mb: 6 }}>
         <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
           <DashboardIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
           Dashboard
@@ -134,21 +135,21 @@ const TenantDashboard = () => {
       </Box>
 
       {/* Overview Cards - Top Row */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
+       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ 
             height: '100%', 
-            background: 'linear-gradient(135deg, #fff 0%, #f8f9fa 100%)',
+            background: 'linear-gradient(135deg, #cfc7c7ff 0%, #f8f9fa 100%)',
             border: '1px solid #e0e0e0'
           }}>
             <CardContent sx={{ textAlign: 'center', p: 3 }}>
               <Box sx={{ 
-                display: 'inline-flex', 
+                display: 'inline-flex',
                 alignItems: 'center', 
                 justifyContent: 'center',
                 width: 60,
                 height: 60,
-                borderRadius: '50%',
+                borderRadius: '100%',
                 bgcolor: 'orange.main',
                 mb: 2
               }}>
@@ -171,7 +172,7 @@ const TenantDashboard = () => {
           <Card sx={{ 
             height: '100%', 
             background: 'linear-gradient(135deg, #fff 0%,rgb(163, 202, 147) 100%)',
-            border: '1px solid #e0e0e0'
+            border: '10px solid #868986ff'
           }}>
             <CardContent sx={{ textAlign: 'center', p: 3 }}>
               <Box sx={{ 

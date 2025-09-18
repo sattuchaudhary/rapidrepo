@@ -14,7 +14,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const Login = () => {
   const [formData, setFormData] = useState({
-    email: '',
+    identifier: '', // Can be email or phone
     password: ''
   });
   const [error, setError] = useState('');
@@ -32,9 +32,14 @@ const Login = () => {
     e.preventDefault();
     setError('');
 
-    const result = await login(formData.email, formData.password);
+    const result = await login(formData.identifier, formData.password);
     if (result.success) {
-      navigate('/');
+      // Navigate based on user type and redirect path
+      if (result.redirectTo) {
+        navigate(result.redirectTo);
+      } else {
+        navigate('/');
+      }
     } else {
       setError(result.message);
     }
@@ -66,13 +71,14 @@ const Login = () => {
               margin="normal"
               required
               fullWidth
-              id="email"
-              label="Email Address"
-              name="email"
+              id="identifier"
+              label="Email or Phone Number"
+              name="identifier"
               autoComplete="email"
               autoFocus
-              value={formData.email}
+              value={formData.identifier}
               onChange={handleChange}
+              helperText="Enter your email address or phone number"
             />
             <TextField
               margin="normal"

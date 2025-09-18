@@ -41,13 +41,16 @@ import {
   Person as PersonIcon
 } from '@mui/icons-material';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 
 const OfficeStaffList = () => {
   const [staff, setStaff] = useState([]);
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [dialogError, setDialogError] = useState('');
   const [searchEmail, setSearchEmail] = useState('');
   const [searchName, setSearchName] = useState('');
   const [searchMobile, setSearchMobile] = useState('');
@@ -58,6 +61,7 @@ const OfficeStaffList = () => {
   const [openAddDialog, setOpenAddDialog] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
+    email: '',
     phoneNumber: '',
     role: '',
     address: '',
@@ -122,12 +126,7 @@ const OfficeStaffList = () => {
     try {
       const token = localStorage.getItem('token');
       const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-      
-      const response = await axios.put(`http://localhost:5000/api/tenant/users/${staffId}/status`, {
-        status: newStatus
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await axios.put(`http://localhost:5000/api/tenant/users/staff/${staffId}/status`, { status: newStatus }, { headers: { Authorization: `Bearer ${token}` } });
       
       if (response.data.success) {
         setSuccess(`Staff status updated to ${newStatus}`);
@@ -144,10 +143,12 @@ const OfficeStaffList = () => {
   const handleOpenAddDialog = () => {
     setOpenAddDialog(true);
     setFormErrors({});
+    setDialogError('');
   };
 
   const handleCloseAddDialog = () => {
     setOpenAddDialog(false);
+    setDialogError('');
     setFormData({
       name: '',
       phoneNumber: '',
@@ -196,6 +197,8 @@ const OfficeStaffList = () => {
     const errors = {};
     
     if (!formData.name.trim()) errors.name = 'Please enter name';
+    if (!formData.email.trim()) errors.email = 'Please enter email';
+    if (formData.email && !/^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/.test(formData.email)) errors.email = 'Invalid email';
     if (!formData.phoneNumber.trim()) errors.phoneNumber = 'Please enter phone number';
     if (!formData.role) errors.role = 'Please select a role';
     if (!formData.address.trim()) errors.address = 'Please enter address';
@@ -233,10 +236,12 @@ const OfficeStaffList = () => {
     
     try {
       setLoading(true);
+      setDialogError('');
       
       // Prepare data for submission (excluding file objects for now)
       const submitData = {
         name: formData.name,
+        email: formData.email,
         phoneNumber: formData.phoneNumber,
         role: formData.role,
         address: formData.address,
@@ -269,13 +274,11 @@ const OfficeStaffList = () => {
       }
     } catch (error) {
       console.error('Error adding office staff:', error);
-      
       if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {
-        // Handle validation errors
         const errorMessages = error.response.data.errors.join(', ');
-        setError(`Validation errors: ${errorMessages}`);
+        setDialogError(`Validation errors: ${errorMessages}`);
       } else {
-        setError(`Failed to add office staff: ${error.response?.data?.message || error.message}`);
+        setDialogError(error.response?.data?.message || error.message || 'Failed to add office staff');
       }
     } finally {
       setLoading(false);
@@ -285,8 +288,9 @@ const OfficeStaffList = () => {
   // Filter staff based on search
   const filteredStaff = staff.filter(staffMember => {
     const emailMatch = staffMember.email?.toLowerCase().includes(searchEmail.toLowerCase()) || !searchEmail;
-    const nameMatch = staffMember.fullName?.toLowerCase().includes(searchName.toLowerCase()) || !searchName;
-    const mobileMatch = staffMember.mobile?.includes(searchMobile) || !searchMobile;
+    const nameMatch = (staffMember.fullName || staffMember.name || '').toLowerCase().includes(searchName.toLowerCase()) || !searchName;
+    const mobileValue = staffMember.phoneNumber || staffMember.mobile || staffMember.phone || '';
+    const mobileMatch = String(mobileValue).includes(searchMobile) || !searchMobile;
     return emailMatch && nameMatch && mobileMatch;
   });
 
@@ -409,6 +413,13 @@ const OfficeStaffList = () => {
         />
         <TextField
           size="small"
+          placeholder="Email"
+          value={searchEmail}
+          onChange={(e) => setSearchEmail(e.target.value)}
+          sx={{ minWidth: 200 }}
+        />
+        <TextField
+          size="small"
           placeholder="Mobile Number"
           value={searchMobile}
           onChange={(e) => setSearchMobile(e.target.value)}
@@ -423,7 +434,7 @@ const OfficeStaffList = () => {
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>S.No</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Id</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Staff ID</TableCell>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Name</TableCell>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>City</TableCell>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>State</TableCell>
@@ -457,7 +468,7 @@ const OfficeStaffList = () => {
                 paginatedStaff.map((staffMember, index) => (
                   <TableRow key={staffMember._id || staffMember.id} hover>
                     <TableCell>{page * rowsPerPage + index + 1}</TableCell>
-                    <TableCell>{staffMember._id || staffMember.id}</TableCell>
+                    <TableCell>{staffMember.staffCode || staffMember.staffId || staffMember._id || staffMember.id}</TableCell>
                     <TableCell>
                       <Typography variant="subtitle2" fontWeight="bold">
                         {staffMember.fullName || staffMember.name || 'N/A'}
@@ -465,7 +476,7 @@ const OfficeStaffList = () => {
                     </TableCell>
                     <TableCell>{staffMember.city || 'N/A'}</TableCell>
                     <TableCell>{staffMember.state || 'N/A'}</TableCell>
-                    <TableCell>{staffMember.mobile || staffMember.phone || 'N/A'}</TableCell>
+                    <TableCell>{staffMember.phoneNumber || staffMember.mobile || staffMember.phone || 'N/A'}</TableCell>
                     <TableCell>
                       <Chip 
                         label={staffMember.role || 'officestaff'} 
@@ -495,7 +506,7 @@ const OfficeStaffList = () => {
                     </TableCell>
                     <TableCell align="center">
                       <Box display="flex" gap={1} justifyContent="center">
-                        <IconButton size="small" color="primary">
+                        <IconButton size="small" color="primary" onClick={() => navigate(`/tenant/users/staff/${staffMember._id || staffMember.id}`)}>
                           <ViewIcon />
                         </IconButton>
                         <IconButton 
@@ -504,7 +515,7 @@ const OfficeStaffList = () => {
                         >
                           {staffMember.status === 'active' ? <PauseIcon /> : <PlayIcon />}
                         </IconButton>
-                        <IconButton size="small" color="primary">
+                        <IconButton size="small" color="primary" onClick={() => navigate(`/tenant/users/staff/${staffMember._id || staffMember.id}?edit=1`)}>
                           <EditIcon />
                         </IconButton>
                         <IconButton size="small" color="error">
@@ -544,28 +555,45 @@ const OfficeStaffList = () => {
       <Dialog 
         open={openAddDialog} 
         onClose={handleCloseAddDialog}
-        maxWidth="md"
+        maxWidth={false}
         fullWidth
         PaperProps={{
           sx: {
+            width: { xs: '100%', md: '80vw' },
+            maxWidth: 1200,
+            m: 0,
             borderRadius: 3,
+            overflow: 'hidden',
             boxShadow: '0 8px 32px rgba(0,0,0,0.12)'
           }
         }}
       >
         <DialogTitle sx={{ 
-          bgcolor: 'primary.main', 
-          color: 'white',
-          textAlign: 'center',
-          fontWeight: 'bold'
+          bgcolor: 'background.paper',
+          color: 'text.primary',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontWeight: 'bold',
+          position: 'sticky',
+          top: 0,
+          zIndex: 1,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          py: 2
         }}>
           Add Office Staff
         </DialogTitle>
         
-        <DialogContent sx={{ p: 3 }}>
-          <Grid container spacing={3}>
+        <DialogContent sx={{ p: 3, maxHeight: '70vh', overflowY: 'auto' }}>
+          {dialogError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDialogError('')}>
+              {dialogError}
+            </Alert>
+          )}
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 3, rowGap: 3 }}>
             {/* Left Column */}
-            <Grid item xs={12} md={6}>
+            <Box>
               <FormControl fullWidth sx={{ mb: 2 }}>
                 <InputLabel>Role *</InputLabel>
                 <Select
@@ -665,10 +693,10 @@ const OfficeStaffList = () => {
                   style={{ width: '100%' }}
                 />
               </Box>
-            </Grid>
+            </Box>
 
             {/* Right Column */}
-            <Grid item xs={12} md={6}>
+            <Box>
               <TextField
                 fullWidth
                 label="Name *"
@@ -678,6 +706,17 @@ const OfficeStaffList = () => {
                 sx={{ mb: 2 }}
                 error={!!formErrors.name}
                 helperText={formErrors.name}
+              />
+
+              <TextField
+                fullWidth
+                label="Email *"
+                name="email"
+                value={formData.email}
+                onChange={handleInputChange}
+                sx={{ mb: 2 }}
+                error={!!formErrors.email}
+                helperText={formErrors.email}
               />
 
               <TextField
@@ -771,11 +810,11 @@ const OfficeStaffList = () => {
                   style={{ width: '100%' }}
                 />
               </Box>
-            </Grid>
-          </Grid>
+            </Box>
+          </Box>
         </DialogContent>
 
-        <DialogActions sx={{ p: 3, justifyContent: 'center', gap: 2 }}>
+        <DialogActions sx={{ p: 2, justifyContent: 'center', gap: 2, borderTop: '1px solid', borderColor: 'divider' }}>
           <Button
             variant="outlined"
             onClick={handleCloseAddDialog}
@@ -812,3 +851,4 @@ const OfficeStaffList = () => {
 };
 
 export default OfficeStaffList;
+

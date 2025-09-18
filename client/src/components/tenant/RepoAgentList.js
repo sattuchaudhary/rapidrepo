@@ -42,13 +42,16 @@ import {
   TrackChanges as TrackIcon
 } from '@mui/icons-material';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 
 const RepoAgentList = () => {
   const [agents, setAgents] = useState([]);
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [dialogError, setDialogError] = useState('');
   const [searchEmail, setSearchEmail] = useState('');
   const [searchName, setSearchName] = useState('');
   const [searchMobile, setSearchMobile] = useState('');
@@ -122,12 +125,7 @@ const RepoAgentList = () => {
     try {
       const token = localStorage.getItem('token');
       const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-      
-      const response = await axios.put(`http://localhost:5000/api/tenant/users/${agentId}/status`, {
-        status: newStatus
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await axios.put(`http://localhost:5000/api/tenant/users/agents/${agentId}/status`, { status: newStatus }, { headers: { Authorization: `Bearer ${token}` } });
       
       if (response.data.success) {
         setSuccess(`Agent status updated to ${newStatus}`);
@@ -144,6 +142,7 @@ const RepoAgentList = () => {
   const handleOpenAddDialog = () => {
     setOpenAddDialog(true);
     setFormErrors({});
+    setDialogError('');
     setFormData({
       name: '',
       email: '',
@@ -168,6 +167,7 @@ const RepoAgentList = () => {
   const handleCloseAddDialog = () => {
     setOpenAddDialog(false);
     setFormErrors({});
+    setDialogError('');
     setFormData({
       name: '',
       email: '',
@@ -241,6 +241,7 @@ const RepoAgentList = () => {
     try {
       setSubmitting(true);
       setError('');
+      setDialogError('');
       
       const submitData = {
         name: formData.name,
@@ -278,9 +279,9 @@ const RepoAgentList = () => {
       console.error('Error adding repo agent:', error);
       if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {
         const errorMessages = error.response.data.errors.join(', ');
-        setError(`Validation errors: ${errorMessages}`);
+        setDialogError(`Validation errors: ${errorMessages}`);
       } else {
-        setError(`Failed to add repo agent: ${error.response?.data?.message || error.message}`);
+        setDialogError(error.response?.data?.message || error.message || 'Failed to add repo agent');
       }
     } finally {
       setSubmitting(false);
@@ -290,8 +291,9 @@ const RepoAgentList = () => {
   // Filter agents based on search
   const filteredAgents = agents.filter(agent => {
     const emailMatch = agent.email?.toLowerCase().includes(searchEmail.toLowerCase()) || !searchEmail;
-    const nameMatch = agent.fullName?.toLowerCase().includes(searchName.toLowerCase()) || !searchName;
-    const mobileMatch = agent.mobile?.includes(searchMobile) || !searchMobile;
+    const nameMatch = (agent.fullName || agent.name || '').toLowerCase().includes(searchName.toLowerCase()) || !searchName;
+    const mobileValue = agent.phoneNumber || agent.mobile || agent.phone || '';
+    const mobileMatch = String(mobileValue).includes(searchMobile) || !searchMobile;
     return emailMatch && nameMatch && mobileMatch;
   });
 
@@ -456,7 +458,7 @@ const RepoAgentList = () => {
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>S.No</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Id</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Agent ID</TableCell>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Name</TableCell>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>City</TableCell>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>State</TableCell>
@@ -490,7 +492,7 @@ const RepoAgentList = () => {
                 paginatedAgents.map((agent, index) => (
                   <TableRow key={agent._id || agent.id} hover>
                     <TableCell>{page * rowsPerPage + index + 1}</TableCell>
-                    <TableCell>{agent._id || agent.id}</TableCell>
+                    <TableCell>{agent.agentCode || agent.agentId || agent._id || agent.id}</TableCell>
                     <TableCell>
                       <Typography variant="subtitle2" fontWeight="bold">
                         {agent.fullName || agent.name || 'N/A'}
@@ -499,7 +501,7 @@ const RepoAgentList = () => {
                     <TableCell>{agent.city || 'N/A'}</TableCell>
                     <TableCell>{agent.state || 'N/A'}</TableCell>
                     <TableCell>{agent.email || 'N/A'}</TableCell>
-                    <TableCell>{agent.mobile || agent.phone || 'N/A'}</TableCell>
+                    <TableCell>{agent.phoneNumber || agent.mobile || agent.phone || 'N/A'}</TableCell>
                     <TableCell>
                       {agent.createdAt ? 
                         new Date(agent.createdAt).toLocaleDateString('en-US', { 
@@ -521,10 +523,10 @@ const RepoAgentList = () => {
                     </TableCell>
                     <TableCell align="center">
                       <Box display="flex" gap={1} justifyContent="center">
-                        <IconButton size="small" color="primary">
+                        <IconButton size="small" color="primary" onClick={() => navigate(`/tenant/users/agents/${agent._id || agent.id}`)}>
                           <ViewIcon />
                         </IconButton>
-                        <IconButton size="small" color="primary">
+                        <IconButton size="small" color="primary" onClick={() => navigate(`/tenant/users/agents/${agent._id || agent.id}?edit=1`)}>
                           <EditIcon />
                         </IconButton>
                         <IconButton 
@@ -576,24 +578,44 @@ const RepoAgentList = () => {
       <Dialog 
         open={openAddDialog} 
         onClose={handleCloseAddDialog}
-        maxWidth="md"
+        maxWidth={false}
         fullWidth
+        PaperProps={{
+          sx: {
+            width: { xs: '100%', md: '80vw' },
+            maxWidth: 1200,
+            m: 0,
+            borderRadius: 3,
+            overflow: 'hidden'
+          }
+        }}
       >
         <DialogTitle sx={{ 
-          bgcolor: 'primary.main', 
-          color: 'white',
+          bgcolor: 'background.paper',
+          color: 'text.primary',
           display: 'flex',
           alignItems: 'center',
-          gap: 1
+          gap: 1,
+          position: 'sticky',
+          top: 0,
+          zIndex: 1,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          py: 2
         }}>
           <PersonIcon />
           Add Repo Agent
         </DialogTitle>
         
-        <DialogContent sx={{ pt: 3 }}>
-          <Grid container spacing={3}>
+        <DialogContent sx={{ p: 3, maxHeight: '70vh', overflowY: 'auto' }}>
+          {dialogError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDialogError('')}>
+              {dialogError}
+            </Alert>
+          )}
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 3, rowGap: 3 }}>
             {/* Left Column */}
-            <Grid item xs={12} md={6}>
+            <Box>
               <TextField
                 fullWidth
                 label="Role"
@@ -690,10 +712,10 @@ const RepoAgentList = () => {
                   style={{ width: '100%' }}
                 />
               </Box>
-            </Grid>
+            </Box>
             
             {/* Right Column */}
-            <Grid item xs={12} md={6}>
+            <Box>
               <TextField
                 fullWidth
                 label="Name *"
@@ -790,11 +812,11 @@ const RepoAgentList = () => {
                   style={{ width: '100%' }}
                 />
               </Box>
-            </Grid>
-          </Grid>
+            </Box>
+          </Box>
         </DialogContent>
         
-        <DialogActions sx={{ p: 3, gap: 2 }}>
+        <DialogActions sx={{ p: 2, gap: 2, borderTop: '1px solid', borderColor: 'divider' }}>
           <Button
             variant="outlined"
             onClick={handleCloseAddDialog}

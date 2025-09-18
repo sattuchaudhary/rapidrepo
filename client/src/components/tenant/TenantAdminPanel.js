@@ -20,7 +20,8 @@ import {
   Card,
   CardContent,
   Grid,
-  Chip
+  Chip,
+  CheckCircle
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -49,12 +50,15 @@ import { useAuth } from '../../contexts/AuthContext';
 import ClientManagement from './ClientManagement';
 import OfficeStaffList from './OfficeStaffList';
 import RepoAgentList from './RepoAgentList';
+import UserDetailView from './UserDetailView';
 import PendingApprovals from './PendingApprovals';
 import MobileUpload from './MobileUpload';
 import { useNavigate, useLocation } from 'react-router-dom';
 import TwoWheelerData from './files/TwoWheelerData';
 import FourWheelerData from './files/FourWheelerData';
 import CVData from './files/CVData';
+import VehicleDataDetails from './files/VehicleDataDetails';
+import UserStatistics from './UserStatistics';
 
 const TenantAdminPanel = () => {
   const navigate = useNavigate();
@@ -346,7 +350,8 @@ const TenantAdminPanel = () => {
       <Drawer
         variant="permanent"
         sx={{
-          width: drawerWidth,
+          // width: drawerWidth,
+      
           flexShrink: 0,
           '& .MuiDrawer-paper': {
             width: drawerWidth,
@@ -437,14 +442,14 @@ const TenantAdminPanel = () => {
       {/* Main Content Area */}
       <Box
         component="main"
-        // sx={{
-        //   flexGrow: 1,
-        //   bgcolor: '#f7f7f7',
-        //   minHeight: '100vh',
-        //   ml: `${drawerWidth}px`,
-        //   width: `calc(100% - ${drawerWidth}px)`,
-        //   pt: '64px'
-        // }}
+        sx={{
+          flexGrow: 1,
+          bgcolor: '#f7f7f7',
+          minHeight: '100vh',
+          
+          
+          
+        }}
       >
         <Box sx={{ px: 1, py: 2 }}>
           <Box
@@ -865,15 +870,20 @@ const TenantAdminPanel = () => {
             <RepoAgentList />
           )}
 
+          {/* Detail routes */}
+          {location.pathname.startsWith('/tenant/users/staff/') && (
+            <UserDetailView type="staff" />
+          )}
+          {location.pathname.startsWith('/tenant/users/agents/') && (
+            <UserDetailView type="agent" />
+          )}
+
           {location.pathname === '/tenant/users/pending' && (
             <PendingApprovals />
           )}
 
             {location.pathname === '/tenant/clients' && (
               <ClientManagement />
-            )}
-            {location.pathname === '/tenant/mobile-upload' && (
-              <MobileUpload />
             )}
             {location.pathname === '/tenant/files/two-wheeler' && (
               <TwoWheelerData />
@@ -883,6 +893,15 @@ const TenantAdminPanel = () => {
             )}
             {location.pathname === '/tenant/files/cv' && (
               <CVData />
+            )}
+            {location.pathname === '/tenant/mobile-upload' && (
+              <MobileUpload />
+            )}
+            {location.pathname.startsWith('/tenant/files/vehicle-data/') && (
+              <VehicleDataDetails />
+            )}
+            {location.pathname === '/tenant/user-stats' && (
+              <UserStatistics />
             )}
           </Box>
         </Box>
