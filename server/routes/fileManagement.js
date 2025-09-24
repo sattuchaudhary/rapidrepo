@@ -4,6 +4,202 @@ const mongoose = require('mongoose');
 const { authenticateUnifiedToken, requireAdmin } = require('../middleware/unifiedAuth');
 const Tenant = require('../models/Tenant');
 const { getTenantDB } = require('../config/database');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+let BetterSqlite3;
+
+// Try to load better-sqlite3 for snapshot building; if unavailable, endpoints will respond accordingly
+try {
+  // eslint-disable-next-line import/no-extraneous-dependencies, global-require
+  BetterSqlite3 = require('better-sqlite3');
+} catch (_) {
+  BetterSqlite3 = null;
+}
+
+const SNAPSHOT_DIR = process.env.SNAPSHOT_DIR || path.join(process.cwd(), 'snapshots');
+const ensureDir = (p) => { try { fs.mkdirSync(p, { recursive: true }); } catch (_) {} };
+ensureDir(SNAPSHOT_DIR);
+
+const getSnapshotPaths = (tenantName) => {
+  const safe = String(tenantName || 'tenant').replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+  const base = path.join(SNAPSHOT_DIR, safe);
+  ensureDir(base);
+  return {
+    dir: base,
+    dbPath: path.join(base, 'rapidrepo.db'),
+    tmpPath: path.join(base, 'rapidrepo.db.tmp'),
+    metaPath: path.join(base, 'meta.json')
+  };
+};
+
+async function buildTenantSnapshotInternal(tenantName) {
+  if (!BetterSqlite3) {
+    throw new Error('better-sqlite3 not installed. Run: npm install better-sqlite3');
+  }
+
+  const paths = getSnapshotPaths(tenantName);
+  // Remove existing tmp
+  try { fs.unlinkSync(paths.tmpPath); } catch (_) {}
+
+  const db = new BetterSqlite3(paths.tmpPath);
+  try {
+    // Use compatible settings for mobile SQLite
+    db.pragma('journal_mode = DELETE');
+    db.pragma('synchronous = FULL');
+    db.pragma('page_size = 4096');
+    db.exec(`CREATE TABLE IF NOT EXISTS vehicles (
+      _id TEXT PRIMARY KEY,
+      vehicleType TEXT,
+      regNo TEXT,
+      regSuffix TEXT,
+      chassisNo TEXT,
+      chassisLc TEXT,
+      loanNo TEXT,
+      bank TEXT,
+      make TEXT,
+      customerName TEXT,
+      address TEXT
+    );`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vehicles_regsuffix ON vehicles (regSuffix);');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vehicles_chassislc ON vehicles (chassisLc);');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vehicles_regno ON vehicles (regNo);');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vehicles_chassisno ON vehicles (chassisNo);');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vehicles_loanno ON vehicles (loanNo);');
+
+    const insertStmt = db.prepare(`INSERT OR REPLACE INTO vehicles
+      (_id, vehicleType, regNo, regSuffix, chassisNo, chassisLc, loanNo, bank, make, customerName, address)
+      VALUES (@_id, @vehicleType, @regNo, @regSuffix, @chassisNo, @chassisLc, @loanNo, @bank, @make, @customerName, @address)`);
+    const insertMany = db.transaction((rows) => {
+      for (const v of rows) insertStmt.run(v);
+    });
+
+    // Pull data from Mongo in chunks and insert
+    const conn = await getTenantDB(tenantName);
+    const collections = ['two_wheeler_data', 'four_wheeler_data', 'commercial_data'];
+    for (const col of collections) {
+      try {
+        const M = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), col);
+        const total = await M.countDocuments({});
+        const batch = 10000;
+        for (let skip = 0; skip < total; skip += batch) {
+          const docs = await M.find({}, {
+            registrationNumber: 1,
+            chassisNumber: 1,
+            agreementNumber: 1,
+            bankName: 1,
+            vehicleMake: 1,
+            customerName: 1,
+            address: 1
+          }).sort({ _id: 1 }).skip(skip).limit(batch).lean();
+          const rows = [];
+          for (const v of docs) {
+            const regNo = String(v.registrationNumber || '').trim();
+            const chassisNo = String(v.chassisNumber || '').trim();
+            if (!regNo && !chassisNo) continue;
+            rows.push({
+              _id: String(v._id || ''),
+              vehicleType: col.includes('two') ? 'TwoWheeler' : col.includes('four') ? 'FourWheeler' : 'Commercial',
+              regNo,
+              regSuffix: regNo.length >= 4 ? regNo.slice(-4) : '',
+              chassisNo,
+              chassisLc: chassisNo.toLowerCase(),
+              loanNo: String(v.agreementNumber || ''),
+              bank: String(v.bankName || ''),
+              make: String(v.vehicleMake || ''),
+              customerName: String(v.customerName || ''),
+              address: String(v.address || '')
+            });
+          }
+          if (rows.length) insertMany(rows);
+        }
+      } catch (_) {}
+    }
+
+    // Optimize database before closing
+    db.pragma('optimize');
+    db.close();
+
+    // Move tmp -> final
+    try { fs.unlinkSync(paths.dbPath); } catch (_) {}
+    fs.renameSync(paths.tmpPath, paths.dbPath);
+
+    // Compute md5 and size
+    const buf = fs.readFileSync(paths.dbPath);
+    const md5 = crypto.createHash('md5').update(buf).digest('hex');
+    const size = fs.statSync(paths.dbPath).size;
+    const meta = { tenant: tenantName, md5, size, version: Date.now(), updatedAt: new Date().toISOString() };
+    fs.writeFileSync(paths.metaPath, JSON.stringify(meta));
+    return meta;
+  } catch (e) {
+    try { db.close(); } catch (_) {}
+    try { fs.unlinkSync(paths.tmpPath); } catch (_) {}
+    throw e;
+  }
+}
+
+// Expose builder for internal use (e.g., after upload)
+router.buildTenantSnapshot = async (tenantName) => buildTenantSnapshotInternal(tenantName);
+
+// Snapshot meta endpoint
+router.get('/offline-snapshot-meta', authenticateUnifiedToken, async (req, res) => {
+  try {
+    const tenantId = req.user?.tenantId;
+    const tenantNameClaim = req.user?.tenantName;
+    let tenant = null;
+    if (tenantId) tenant = await Tenant.findById(tenantId);
+    if (!tenant && tenantNameClaim) tenant = await Tenant.findOne({ name: tenantNameClaim });
+    if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
+
+    const { metaPath } = getSnapshotPaths(tenant.name);
+    if (!fs.existsSync(metaPath)) return res.status(404).json({ success: false, message: 'Snapshot not found' });
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    return res.json(meta);
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to get snapshot meta' });
+  }
+});
+
+// Snapshot download endpoint
+router.get('/offline-snapshot', authenticateUnifiedToken, async (req, res) => {
+  try {
+    const tenantId = req.user?.tenantId;
+    const tenantNameClaim = req.user?.tenantName;
+    let tenant = null;
+    if (tenantId) tenant = await Tenant.findById(tenantId);
+    if (!tenant && tenantNameClaim) tenant = await Tenant.findOne({ name: tenantNameClaim });
+    if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
+
+    const { dbPath } = getSnapshotPaths(tenant.name);
+    if (!fs.existsSync(dbPath)) return res.status(404).json({ success: false, message: 'Snapshot not found' });
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="rapidrepo.db"');
+    fs.createReadStream(dbPath).pipe(res);
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to get snapshot' });
+  }
+});
+
+// Build snapshot on demand (admin only)
+router.post('/offline-snapshot/build', authenticateUnifiedToken, requireAdmin, async (req, res) => {
+  try {
+    if (!BetterSqlite3) {
+      return res.status(501).json({ success: false, message: 'Snapshot builder unavailable. Install dependency: npm install better-sqlite3' });
+    }
+    const tenantId = req.user?.tenantId;
+    const tenantNameClaim = req.user?.tenantName;
+    let tenant = null;
+    if (tenantId) tenant = await Tenant.findById(tenantId);
+    if (!tenant && tenantNameClaim) tenant = await Tenant.findOne({ name: tenantNameClaim });
+    if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
+
+    const meta = await buildTenantSnapshotInternal(tenant.name);
+    return res.json({ success: true, message: 'Snapshot built', meta });
+  } catch (error) {
+    console.error('Snapshot build error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to build snapshot' });
+  }
+});
 
 // Helper: escape user-provided strings for safe use in RegExp
 const escapeRegexSafe = (str) => String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -371,14 +567,40 @@ router.get('/offline-stats', authenticateUnifiedToken, async (req, res) => {
       four: 'four_wheeler_data',
       comm: 'commercial_data'
     };
+    const { since } = req.query;
+    const sinceDate = since ? new Date(since) : new Date(0);
+    
     const out = {};
+    let newRecords = 0;
+    
     for (const [key, col] of Object.entries(map)) {
       try {
         const M = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), col);
-        out[key] = await M.countDocuments({});
-      } catch (_) { out[key] = 0; }
+        const totalCount = await M.countDocuments({});
+        out[key] = totalCount;
+        
+        // Count new records since last sync
+        const newCount = await M.countDocuments({
+          $or: [
+            { createdAt: { $gte: sinceDate } },
+            { updatedAt: { $gte: sinceDate } },
+            { uploadDate: { $gte: sinceDate } }
+          ]
+        });
+        newRecords += newCount;
+      } catch (_) { 
+        out[key] = 0; 
+      }
     }
-    return res.json({ success: true, tenant: tenant.name, counts: out, collections: Object.keys(map) });
+    
+    return res.json({ 
+      success: true, 
+      tenant: tenant.name, 
+      counts: out, 
+      newRecords: newRecords,
+      since: sinceDate.toISOString(),
+      collections: Object.keys(map) 
+    });
   } catch (error) {
     console.error('offline-stats error:', error);
     return res.status(500).json({ success: false, message: 'Failed to get stats' });
@@ -432,6 +654,90 @@ router.get('/offline-chunk', authenticateUnifiedToken, async (req, res) => {
   } catch (error) {
     console.error('offline-chunk error:', error);
     return res.status(500).json({ success: false, message: 'Failed to get chunk' });
+  }
+});
+
+// Incremental sync - get only new data since last sync
+router.get('/incremental-sync', authenticateUnifiedToken, async (req, res) => {
+  try {
+    const tenantId = req.user?.tenantId;
+    const tenantName = req.user?.tenantName;
+    if (!tenantId && !tenantName) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    
+    let tenant = null;
+    if (tenantId) tenant = await Tenant.findById(tenantId);
+    if (!tenant && tenantName) tenant = await Tenant.findOne({ name: tenantName });
+    if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
+
+    const { since } = req.query;
+    const sinceDate = since ? new Date(since) : new Date(0);
+    
+    const conn = await getTenantDB(tenant.name);
+    const collections = ['two_wheeler_data', 'four_wheeler_data', 'commercial_data'];
+    const out = [];
+    let totalRecords = 0;
+    
+    console.log(`Incremental sync for tenant: ${tenant.name} since ${sinceDate.toISOString()}`);
+    
+    for (const col of collections) {
+      try {
+        const Model = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), col);
+        
+        // Find records created or updated since the given date
+        const docs = await Model.find({
+          $or: [
+            { createdAt: { $gte: sinceDate } },
+            { updatedAt: { $gte: sinceDate } },
+            { uploadDate: { $gte: sinceDate } }
+          ]
+        }, {
+          registrationNumber: 1,
+          chassisNumber: 1,
+          agreementNumber: 1,
+          bankName: 1,
+          vehicleMake: 1,
+          customerName: 1,
+          address: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          uploadDate: 1
+        }).sort({ _id: 1 }).lean();
+
+        const data = docs.map(v => ({
+          _id: v._id,
+          vehicleType: col.includes('two') ? 'TwoWheeler' : col.includes('four') ? 'FourWheeler' : 'Commercial',
+          regNo: v.registrationNumber || '',
+          chassisNo: v.chassisNumber || '',
+          loanNo: v.agreementNumber || '',
+          bank: v.bankName || '',
+          make: v.vehicleMake || '',
+          customerName: v.customerName || '',
+          address: v.address || '',
+          createdAt: v.createdAt,
+          updatedAt: v.updatedAt,
+          uploadDate: v.uploadDate
+        }));
+
+        out.push(...data);
+        totalRecords += data.length;
+        console.log(`Collection ${col}: Found ${data.length} new/updated records`);
+      } catch (e) {
+        console.error(`Error processing collection ${col}:`, e);
+      }
+    }
+    
+    console.log(`Incremental sync completed: ${totalRecords} new/updated records for ${tenant.name}`);
+    
+    return res.json({ 
+      success: true, 
+      data: out,
+      totalRecords: totalRecords,
+      since: sinceDate.toISOString(),
+      tenant: tenant.name
+    });
+  } catch (error) {
+    console.error('Incremental sync error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to get incremental data' });
   }
 });
 
@@ -686,6 +992,90 @@ router.get('/two-wheeler', async (req, res) => {
       message: 'Failed to fetch upload history',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
+  }
+});
+
+// Tenant dashboard statistics (totals and breakdowns)
+router.get('/dashboard-stats', async (req, res) => {
+  try {
+    const tenant = await Tenant.findById(req.user.tenantId);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+
+    const conn = await getTenantDB(tenant.name);
+    const collections = {
+      two: 'two_wheeler_data',
+      four: 'four_wheeler_data',
+      comm: 'commercial_data'
+    };
+
+    const out = {
+      totalRecords: 0,
+      onHold: 0,
+      inYard: 0,
+      released: 0,
+      totalVehicles: 0,
+      twoWheeler: 0,
+      fourWheeler: 0,
+      cvData: 0,
+      associatedBanks: [],
+      userStats: {
+        officeStaff: 0,
+        repoAgents: 0
+      }
+    };
+
+    const bankCounts = new Map();
+
+    // Count vehicles per collection and accumulate bank counts
+    for (const [key, col] of Object.entries(collections)) {
+      try {
+        const M = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), col);
+        const total = await M.countDocuments({});
+        out.totalVehicles += total;
+        if (key === 'two') out.twoWheeler = total;
+        if (key === 'four') out.fourWheeler = total;
+        if (key === 'comm') out.cvData = total;
+
+        // Optional status tallies if field exists
+        try { out.onHold += await M.countDocuments({ status: /hold/i }); } catch (_) {}
+        try { out.inYard += await M.countDocuments({ status: /yard/i }); } catch (_) {}
+        try { out.released += await M.countDocuments({ status: /release/i }); } catch (_) {}
+
+        // Aggregate bankName counts (top 10)
+        const banks = await M.aggregate([
+          { $match: { bankName: { $exists: true, $ne: '' } } },
+          { $group: { _id: '$bankName', count: { $sum: 1 } } }
+        ]);
+        for (const b of banks) {
+          const name = String(b._id || '').trim();
+          const prev = bankCounts.get(name) || 0;
+          bankCounts.set(name, prev + (b.count || 0));
+        }
+      } catch (_) { /* collection may not exist */ }
+    }
+
+    out.totalRecords = out.totalVehicles;
+    out.associatedBanks = Array.from(bankCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, count]) => ({ name, count }));
+
+    // User stats from tenant database collections
+    try {
+      const OfficeStaff = conn.model('OfficeStaff', new mongoose.Schema({}, { strict: false }), 'officestaffs');
+      out.userStats.officeStaff = await OfficeStaff.countDocuments({});
+    } catch (_) { /* collection may not exist */ }
+    try {
+      const RepoAgent = conn.model('RepoAgent', new mongoose.Schema({}, { strict: false }), 'repoagents');
+      out.userStats.repoAgents = await RepoAgent.countDocuments({});
+    } catch (_) { /* collection may not exist */ }
+
+    return res.json({ success: true, data: out });
+  } catch (error) {
+    console.error('dashboard-stats error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to get dashboard stats' });
   }
 });
 

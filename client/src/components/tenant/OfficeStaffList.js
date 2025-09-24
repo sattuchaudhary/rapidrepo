@@ -139,6 +139,22 @@ const OfficeStaffList = () => {
     }
   };
 
+  const handleDeleteStaff = async (staffId) => {
+    if (!window.confirm('Are you sure you want to delete this office staff?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`http://localhost:5000/api/tenant/users/staff/${staffId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSuccess('Office staff deleted successfully');
+      fetchOfficeStaff();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (error) {
+      console.error('Error deleting office staff:', error);
+      setError(error.response?.data?.message || 'Failed to delete office staff');
+    }
+  };
+
   // Add Office Staff Functions
   const handleOpenAddDialog = () => {
     setOpenAddDialog(true);
@@ -518,7 +534,7 @@ const OfficeStaffList = () => {
                         <IconButton size="small" color="primary" onClick={() => navigate(`/tenant/users/staff/${staffMember._id || staffMember.id}?edit=1`)}>
                           <EditIcon />
                         </IconButton>
-                        <IconButton size="small" color="error">
+                        <IconButton size="small" color="error" onClick={() => handleDeleteStaff(staffMember._id || staffMember.id)}>
                           <DeleteIcon />
                         </IconButton>
                       </Box>

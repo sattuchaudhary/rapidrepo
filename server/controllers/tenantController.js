@@ -122,7 +122,7 @@ const createTenant = async (req, res) => {
         maxUsers: parseInt(maxUsers),
         currentUsers: 0
       },
-      createdBy: req.user._id
+      createdBy: req.user.userId
     });
 
     await tenant.save();

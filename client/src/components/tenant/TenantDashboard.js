@@ -57,28 +57,20 @@ const TenantDashboard = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API calls when backend is ready
-      // For now, using dummy data based on the image
-      setStats({
-        totalRecords: 1250,
-        onHold: 89,
-        inYard: 156,
-        released: 1005,
-        totalVehicles: 892,
-        twoWheeler: 234,
-        fourWheeler: 456,
-        cvData: 202,
-        associatedBanks: [
-          { name: 'MAS FINANCIAL SERVICES', count: 3095 }
-        ],
-        userStats: {
-          officeStaff: 4,
-          repoAgents: 53
-        }
+      setError('');
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('No auth token found');
+      const res = await axios.get('http://localhost:5000/api/tenant/data/dashboard-stats', {
+        headers: { Authorization: `Bearer ${token}` }
       });
+      if (res.data?.success) {
+        setStats(res.data.data || {});
+      } else {
+        throw new Error(res.data?.message || 'Failed to load dashboard data');
+      }
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      setError('Failed to load dashboard data');
+      setError(error.response?.data?.message || error.message || 'Failed to load dashboard data');
     } finally {
       setLoading(false);
     }

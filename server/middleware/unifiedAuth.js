@@ -21,8 +21,8 @@ const authenticateUnifiedToken = async (req, res, next) => {
       userId: decoded.userId || decoded.agentId || decoded.staffId || null,
       agentId: decoded.agentId || null,
       staffId: decoded.staffId || null,
-      userType: decoded.userType,
-      role: decoded.role,
+      userType: decoded.userType || decoded.type || 'repo_agent',
+      role: decoded.role || 'agent',
       tenantId: decoded.tenantId || null,
       tenantName: decoded.tenantName || null
     };
@@ -30,6 +30,7 @@ const authenticateUnifiedToken = async (req, res, next) => {
     // For main users, verify they still exist and are active
     if (decoded.userType === 'main_user') {
       const user = await User.findById(decoded.userId).select('-password');
+      
       
       if (!user || !user.isActive) {
         return res.status(401).json({

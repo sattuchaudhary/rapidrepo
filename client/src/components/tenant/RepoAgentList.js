@@ -138,6 +138,22 @@ const RepoAgentList = () => {
     }
   };
 
+  const handleDeleteAgent = async (agentId) => {
+    if (!window.confirm('Are you sure you want to delete this repo agent?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`http://localhost:5000/api/tenant/users/agents/${agentId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSuccess('Repo agent deleted successfully');
+      fetchRepoAgents();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (error) {
+      console.error('Error deleting repo agent:', error);
+      setError(error.response?.data?.message || 'Failed to delete repo agent');
+    }
+  };
+
   // Add Repo Agent Dialog Handlers
   const handleOpenAddDialog = () => {
     setOpenAddDialog(true);
@@ -538,7 +554,7 @@ const RepoAgentList = () => {
                         <IconButton size="small" color="primary">
                           <MapIcon />
                         </IconButton>
-                        <IconButton size="small" color="error">
+                        <IconButton size="small" color="error" onClick={() => handleDeleteAgent(agent._id || agent.id)}>
                           <DeleteIcon />
                         </IconButton>
                         <IconButton size="small" color="primary">

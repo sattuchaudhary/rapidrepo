@@ -1,8 +1,14 @@
 // Use new API when available, fallback to legacy for compatibility
 let _dbInstance = null;
-let _searchIndex = null; // In-memory search index for ultra-fast lookups
-let _progressiveCache = new Map(); // Progressive search cache for instant results
-let _backgroundSearchTimeout = null; // Background search timeout
+let _isNewAPI = false;
+let _dbLock = Promise.resolve();
+
+const runLocked = (fn) => {
+  const next = _dbLock.then(() => fn());
+  // Prevent lock chain from breaking on rejection
+  _dbLock = next.catch(() => {});
+  return next;
+};
 
 const getDatabase = () => {
   if (_dbInstance) return _dbInstance;
@@ -11,114 +17,70 @@ const getDatabase = () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { openDatabaseSync } = require('expo-sqlite');
     _dbInstance = openDatabaseSync('rapidrepo.db');
+    _isNewAPI = true;
+    console.log('Using new expo-sqlite API');
     return _dbInstance;
   } catch (_) {
     // Legacy API (same package)
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { openDatabase } = require('expo-sqlite');
     _dbInstance = openDatabase('rapidrepo.db');
+    _isNewAPI = false;
+    console.log('Using legacy expo-sqlite API');
     return _dbInstance;
   }
 };
 
-// Build in-memory search index for instant lookups
-export const buildSearchIndex = async () => {
-  try {
-    const db = getDatabase();
-    const res = await executeSql(db, `SELECT _id, regSuffix, chassisLc, regNo, chassisNo, loanNo, bank, make, customerName, address FROM vehicles`);
-    const vehicles = res?.rows?._array || [];
-    
-    _searchIndex = {
-      regSuffix: new Map(), // regSuffix -> [vehicles]
-      chassisPrefix: new Map(), // chassis prefix -> [vehicles]
-      regNo: new Map(), // regNo -> vehicle
-      chassisNo: new Map() // chassisNo -> vehicle
-    };
-    
-    vehicles.forEach(vehicle => {
-      // Index by registration suffix
-      if (vehicle.regSuffix) {
-        if (!_searchIndex.regSuffix.has(vehicle.regSuffix)) {
-          _searchIndex.regSuffix.set(vehicle.regSuffix, []);
-        }
-        _searchIndex.regSuffix.get(vehicle.regSuffix).push(vehicle);
-      }
-      
-      // Index by chassis prefix (first 3 chars)
-      if (vehicle.chassisLc && vehicle.chassisLc.length >= 3) {
-        const prefix = vehicle.chassisLc.slice(0, 3);
-        if (!_searchIndex.chassisPrefix.has(prefix)) {
-          _searchIndex.chassisPrefix.set(prefix, []);
-        }
-        _searchIndex.chassisPrefix.get(prefix).push(vehicle);
-      }
-      
-      // Index by full regNo and chassisNo
-      if (vehicle.regNo) {
-        _searchIndex.regNo.set(vehicle.regNo.toLowerCase(), vehicle);
-      }
-      if (vehicle.chassisNo) {
-        _searchIndex.chassisNo.set(vehicle.chassisNo.toLowerCase(), vehicle);
-      }
-    });
-    
-    console.log(`Search index built: ${_searchIndex.regSuffix.size} reg suffixes, ${_searchIndex.chassisPrefix.size} chassis prefixes`);
-    return _searchIndex;
-  } catch (error) {
-    console.error('Error building search index:', error);
-    return null;
-  }
-};
-
-// Get search index (build if not exists)
-const getSearchIndex = async () => {
-  if (!_searchIndex) {
-    await buildSearchIndex();
-  }
-  return _searchIndex;
-};
-
-// Instant check: is in-memory search index ready?
-export const isSearchIndexReady = () => {
-  return !!_searchIndex;
-};
-
-// Zero-latency lookup from in-memory index only (no DB)
-export const quickLookupByRegSuffix = (suffix) => {
-  const clean = String(suffix || '').replace(/\D/g, '').slice(0, 4);
-  if (!/^[0-9]{4}$/.test(clean)) return [];
-  if (!_searchIndex) return [];
-  const arr = _searchIndex.regSuffix?.get(clean) || [];
-  return Array.isArray(arr) ? arr : [];
-};
-
 const executeSql = (db, sql, params = []) => new Promise((resolve, reject) => {
-  try {
-    // For new API (SDK 50+)
-    if (db.execSync) {
-      const result = db.execSync(sql, params);
-      resolve({ rows: { _array: result } });
-    } else if (db.transaction) {
-      // Legacy API
-      db.transaction(tx => {
-        tx.executeSql(
-          sql,
-          params,
-          (_, result) => resolve(result),
-          (_, error) => { reject(error); return false; }
-        );
-      });
-    } else {
-      reject(new Error('Database not properly initialized'));
-    }
-  } catch (error) {
-    reject(error);
+  if (_isNewAPI) {
+    // New API - serialize with lock to avoid database locked
+    const attempt = async (retries = 5) => {
+      try {
+        const res = await runLocked(() => {
+          const isSelect = /^\s*select/i.test(sql);
+          if (isSelect) {
+            const rows = db.getAllSync(sql, params);
+            return { rows: { _array: rows } };
+          }
+          // For non-select, use runSync so bound parameters are applied
+          db.runSync(sql, params);
+          return { rows: { _array: [] } };
+        });
+        resolve(res);
+      } catch (err) {
+        const msg = String(err?.message || err || '').toLowerCase();
+        if (retries > 0 && (msg.includes('database is locked') || msg.includes('busy'))) {
+          const wait = 100 + Math.floor(Math.random() * 200);
+          setTimeout(() => attempt(retries - 1), wait);
+        } else {
+          reject(err);
+        }
+      }
+    };
+    attempt();
+  } else {
+    // Legacy API - transaction based
+    db.transaction(tx => {
+      tx.executeSql(
+        sql,
+        params,
+        (_, result) => resolve(result),
+        (_, error) => { reject(error); return false; }
+      );
+    });
   }
 });
 
 export const initDatabase = async () => {
   const db = getDatabase();
   // Create table and indexes if not exists
+  try {
+    await executeSql(db, 'PRAGMA journal_mode=WAL');
+    await executeSql(db, 'PRAGMA synchronous=NORMAL');
+    await executeSql(db, 'PRAGMA busy_timeout=5000');
+  } catch (e) {
+    console.log('PRAGMA setup warning:', e?.message || e);
+  }
   await executeSql(db, `CREATE TABLE IF NOT EXISTS vehicles (
     _id TEXT PRIMARY KEY,
     vehicleType TEXT,
@@ -132,17 +94,8 @@ export const initDatabase = async () => {
     customerName TEXT,
     address TEXT
   )`);
-  
-  // Create optimized indexes for ultra-fast searches
   await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_regsuffix ON vehicles (regSuffix)');
   await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_chassislc ON vehicles (chassisLc)');
-  await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_regno ON vehicles (regNo)');
-  await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_chassisno ON vehicles (chassisNo)');
-  await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_loanno ON vehicles (loanNo)');
-  
-  // Composite indexes for complex queries
-  await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_regsuffix_chassis ON vehicles (regSuffix, chassisLc)');
-  
   // Aux table to mark seen ids per sync to support deletion of stale rows
   await executeSql(db, `CREATE TABLE IF NOT EXISTS sync_seen (
     _id TEXT PRIMARY KEY
@@ -151,320 +104,231 @@ export const initDatabase = async () => {
 };
 
 export const clearVehicles = async () => {
-  const db = getDatabase();
-  await executeSql(db, 'DELETE FROM vehicles');
+  try {
+    const db = getDatabase();
+    await executeSql(db, 'DELETE FROM vehicles');
+  } catch (error) {
+    console.log('Error clearing vehicles:', error.message);
+  }
 };
 
 export const countVehicles = async () => {
-  const db = getDatabase();
-  const res = await executeSql(db, 'SELECT COUNT(1) as c FROM vehicles');
-  return res?.rows?._array?.[0]?.c || 0;
+  try {
+    // Ensure DB and tables are initialized before counting
+    await initDatabase();
+    const db = getDatabase();
+    const res = await executeSql(db, 'SELECT COUNT(1) as c FROM vehicles');
+    return res?.rows?._array?.[0]?.c || 0;
+  } catch (error) {
+    console.log('Error counting vehicles:', error.message);
+    return 0;
+  }
+};
+
+// DEBUG: quick stats to validate searchable fields are populated
+export const getSearchableFieldStats = async () => {
+  try {
+    const db = getDatabase();
+    const stats = {};
+    const total = await executeSql(db, 'SELECT COUNT(1) as c FROM vehicles');
+    stats.total = total?.rows?._array?.[0]?.c || 0;
+    const regFilled = await executeSql(db, "SELECT COUNT(1) as c FROM vehicles WHERE regNo IS NOT NULL AND TRIM(regNo) <> ''");
+    stats.regNoFilled = regFilled?.rows?._array?.[0]?.c || 0;
+    const chassisFilled = await executeSql(db, "SELECT COUNT(1) as c FROM vehicles WHERE chassisNo IS NOT NULL AND TRIM(chassisNo) <> ''");
+    stats.chassisNoFilled = chassisFilled?.rows?._array?.[0]?.c || 0;
+    const suffixFilled = await executeSql(db, "SELECT COUNT(1) as c FROM vehicles WHERE regSuffix IS NOT NULL AND TRIM(regSuffix) <> ''");
+    stats.regSuffixFilled = suffixFilled?.rows?._array?.[0]?.c || 0;
+    const sample = await executeSql(db, `SELECT _id, regNo, regSuffix, chassisNo FROM vehicles WHERE regNo IS NOT NULL AND TRIM(regNo) <> '' LIMIT 5`);
+    stats.sample = sample?.rows?._array || [];
+    return stats;
+  } catch (error) {
+    console.log('Error getting field stats:', error.message);
+    return null;
+  }
 };
 
 export const bulkInsertVehicles = async (items, options = {}) => {
-  const { reindex = true } = options;
   if (!Array.isArray(items) || items.length === 0) return 0;
+  
+  try {
+    // Ensure database is initialized
+    await initDatabase();
+  } catch (error) {
+    console.error('Database initialization failed:', error);
+    return 0;
+  }
+  
   const db = getDatabase();
   let inserted = 0;
 
-  // Insert in chunks to avoid large statements (optimized for performance)
-  const chunkSize = 2000; // Increased from 800 to 2000 for better performance
+  // Optimized chunk size based on API version and options
+  const chunkSize = options.chunkSize || (_isNewAPI ? 2000 : 800);
+  const reindex = options.reindex !== false; // Default to true unless explicitly disabled
+
+  console.log(`📦 Bulk inserting ${items.length} items in chunks of ${chunkSize}`);
+
   for (let i = 0; i < items.length; i += chunkSize) {
     const chunk = items.slice(i, i + chunkSize);
     
-    try {
-      // For new API (SDK 50+)
-      if (db.execSync) {
-        for (const v of chunk) {
-          const regNo = String(v.regNo || '').trim();
-          const regSuffix = regNo.length >= 4 ? regNo.slice(-4) : '';
-          const chassisNo = String(v.chassisNo || '').trim();
-          const chassisLc = chassisNo.toLowerCase();
-          
-          db.execSync(
-            `INSERT OR REPLACE INTO vehicles
-              (_id, vehicleType, regNo, regSuffix, chassisNo, chassisLc, loanNo, bank, make, customerName, address)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-            [
-              String(v._id || ''),
-              String(v.vehicleType || ''),
-              regNo,
-              regSuffix,
-              chassisNo,
-              chassisLc,
-              String(v.loanNo || ''),
-              String(v.bank || ''),
-              String(v.make || ''),
-              String(v.customerName || ''),
-              String(v.address || '')
-            ]
-          );
-        }
-        inserted += chunk.length;
-      } else if (db.transaction) {
-        // Legacy API
-        await new Promise((resolve, reject) => {
-          db.transaction(tx => {
+    if (_isNewAPI) {
+      // New API - run the whole chunk inside a lock
+      try {
+        const sql = `INSERT OR REPLACE INTO vehicles
+          (_id, vehicleType, regNo, regSuffix, chassisNo, chassisLc, loanNo, bank, make, customerName, address)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`;
+        await runLocked(async () => {
+          for (const v of chunk) {
             try {
-              for (const v of chunk) {
-                const regNo = String(v.regNo || '').trim();
-                const regSuffix = regNo.length >= 4 ? regNo.slice(-4) : '';
-                const chassisNo = String(v.chassisNo || '').trim();
-                const chassisLc = chassisNo.toLowerCase();
-                tx.executeSql(
-                  `INSERT OR REPLACE INTO vehicles
-                    (_id, vehicleType, regNo, regSuffix, chassisNo, chassisLc, loanNo, bank, make, customerName, address)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-                  [
-                    String(v._id || ''),
-                    String(v.vehicleType || ''),
-                    regNo,
-                    regSuffix,
-                    chassisNo,
-                    chassisLc,
-                    String(v.loanNo || ''),
-                    String(v.bank || ''),
-                    String(v.make || ''),
-                    String(v.customerName || ''),
-                    String(v.address || '')
-                  ]
-                );
-              }
-            } catch (e) { reject(e); }
-          }, reject, () => { inserted += chunk.length; resolve(); });
+              const regNo = String(v.regNo || v.reg_no || v.registrationNumber || v.registration_no || v.vehicleNo || v.vehicle_no || '').trim();
+              const regSuffix = regNo.length >= 4 ? regNo.slice(-4) : '';
+              const chassisNo = String(v.chassisNo || v.chassis_no || v.chassis || v.vin || '').trim();
+              const chassisLc = chassisNo.toLowerCase();
+              // Derive a stable id if _id missing
+              const rawId = v?._id || v?.id || (v?._id && v?._id.$oid) || v?.mongoId || v?.mongo_id;
+              const derivedId = String(rawId || `${regNo}#${chassisNo}`);
+              db.runSync(sql, [
+                derivedId,
+                String(v.vehicleType || v.vehicle_type || ''),
+                regNo,
+                regSuffix,
+                chassisNo,
+                chassisLc,
+                String(v.loanNo || v.loan_no || ''),
+                String(v.bank || v.bank_name || ''),
+                String(v.make || v.manufacturer || ''),
+                String(v.customerName || v.customer_name || ''),
+                String(v.address || v.customer_address || '')
+              ]);
+              inserted++;
+            } catch (individualError) {
+              console.error('Individual insert failed:', individualError);
+            }
+          }
         });
-      } else {
-        throw new Error('Database not properly initialized');
+      } catch (e) {
+        console.error('Bulk insert error (new API):', e);
+        throw e;
       }
-    } catch (error) {
-      console.error('Error inserting chunk:', error);
-      // Continue with next chunk even if one fails
+    } else {
+      // Legacy API - transaction based with error handling
+      await new Promise((resolve, reject) => {
+        db.transaction(tx => {
+          try {
+            for (const v of chunk) {
+              const regNo = String(v.regNo || v.reg_no || v.registrationNumber || v.registration_no || v.vehicleNo || v.vehicle_no || '').trim();
+              const regSuffix = regNo.length >= 4 ? regNo.slice(-4) : '';
+              const chassisNo = String(v.chassisNo || v.chassis_no || v.chassis || v.vin || '').trim();
+              const chassisLc = chassisNo.toLowerCase();
+              const rawId = v?._id || v?.id || (v?._id && v?._id.$oid) || v?.mongoId || v?.mongo_id;
+              const derivedId = String(rawId || `${regNo}#${chassisNo}`);
+              tx.executeSql(
+                `INSERT OR REPLACE INTO vehicles
+                  (_id, vehicleType, regNo, regSuffix, chassisNo, chassisLc, loanNo, bank, make, customerName, address)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+                [
+                  derivedId,
+                  String(v.vehicleType || v.vehicle_type || ''),
+                  regNo,
+                  regSuffix,
+                  chassisNo,
+                  chassisLc,
+                  String(v.loanNo || v.loan_no || ''),
+                  String(v.bank || v.bank_name || ''),
+                  String(v.make || v.manufacturer || ''),
+                  String(v.customerName || v.customer_name || ''),
+                  String(v.address || v.customer_address || '')
+                ]
+              );
+            }
+          } catch (e) { 
+            console.error('Transaction error:', e);
+            reject(e); 
+          }
+        }, reject, () => { 
+          inserted += chunk.length; 
+          resolve(); 
+        });
+      });
+    }
+    
+    // Progress logging for large datasets
+    if (i % (chunkSize * 10) === 0) {
+      console.log(`📊 Progress: ${Math.min(i + chunkSize, items.length)}/${items.length} items processed`);
     }
   }
   
-  // Rebuild search index after bulk insert for ultra-fast searches (optional)
-  if (inserted > 0 && reindex) {
+  // Rebuild indexes if requested and we have the new API
+  if (reindex && _isNewAPI) {
     try {
-      await buildSearchIndex();
-      console.log(`Search index rebuilt after inserting ${inserted} records`);
-    } catch (error) {
-      console.error('Error rebuilding search index:', error);
+      await rebuildSearchIndex();
+    } catch (e) {
+      console.log('Index rebuild completed with warnings');
     }
   }
   
+  console.log(`✅ Bulk insert completed: ${inserted} items inserted`);
   return inserted;
 };
 
-// Explicit function to rebuild index on demand (e.g., once after full sync)
-export const rebuildSearchIndex = async () => {
-  try {
-    await buildSearchIndex();
-    return true;
-  } catch (error) {
-    console.error('Rebuild search index error:', error);
-    return false;
-  }
-};
-
-// Ultra-fast search using in-memory index
 export const searchByRegSuffix = async (suffix) => {
+  const db = getDatabase();
   const clean = String(suffix || '').replace(/\D/g, '').slice(0, 4);
   if (!/^\d{4}$/.test(clean)) return [];
-  
-  try {
-    // Try in-memory index first (ULTRA FAST)
-    const index = await getSearchIndex();
-    if (index && index.regSuffix.has(clean)) {
-      return index.regSuffix.get(clean);
-    }
-  } catch (error) {
-    console.error('Index search error:', error);
-  }
-  
-  // Fallback to database query
-  const db = getDatabase();
   const res = await executeSql(db, `SELECT _id, vehicleType, regNo, chassisNo, loanNo, bank, make, customerName, address
     FROM vehicles WHERE regSuffix = ?`, [clean]);
   return res?.rows?._array || [];
 };
 
-// Ultra-fast chassis search using in-memory index
+// Partial suffix match for 2-3 digits at end of registration number
+export const searchByRegSuffixPartial = async (partial) => {
+  const db = getDatabase();
+  const clean = String(partial || '').replace(/\D/g, '').slice(0, 4);
+  if (clean.length < 2) return [];
+  const patternEnd = `%${clean}`; // ends with the given digits
+  const patternAny = `%${clean}%`; // contains the digits anywhere
+  // Prefer indexed regSuffix; also fallback to regNo LIKE (end) and (anywhere)
+  const res = await executeSql(db, `
+    SELECT DISTINCT _id, vehicleType, regNo, chassisNo, loanNo, bank, make, customerName, address
+    FROM vehicles 
+    WHERE regSuffix LIKE ? OR regNo LIKE ? OR regNo LIKE ?
+    LIMIT 100
+  `, [patternEnd, patternEnd, patternAny]);
+  return res?.rows?._array || [];
+};
+
+// Fallback: search full regNo by suffix when regSuffix column is missing/empty for some rows
+export const searchByRegNoSuffixLike = async (suffix) => {
+  const db = getDatabase();
+  const clean = String(suffix || '').replace(/\D/g, '').slice(0, 4);
+  if (!/^\d{4}$/.test(clean)) return [];
+  const patternEnd = `%${clean}`;
+  const patternAny = `%${clean}%`;
+  const res = await executeSql(db, `SELECT DISTINCT _id, vehicleType, regNo, chassisNo, loanNo, bank, make, customerName, address
+    FROM vehicles WHERE regNo LIKE ? OR regNo LIKE ? LIMIT 200`, [patternEnd, patternAny]);
+  return res?.rows?._array || [];
+};
+
 export const searchByChassis = async (needle) => {
+  const db = getDatabase();
   const q = String(needle || '').trim().toLowerCase();
   if (q.length < 3) return [];
-  
-  try {
-    // Try in-memory index first (ULTRA FAST)
-    const index = await getSearchIndex();
-    if (index) {
-      // Search by prefix for fast lookup
-      if (q.length >= 3) {
-        const prefix = q.slice(0, 3);
-        if (index.chassisPrefix.has(prefix)) {
-          const candidates = index.chassisPrefix.get(prefix);
-          // Filter by full needle
-          return candidates.filter(vehicle => 
-            vehicle.chassisLc && vehicle.chassisLc.includes(q)
-          );
-        }
-      }
-      
-      // Direct chassis number lookup
-      if (index.chassisNo.has(q)) {
-        return [index.chassisNo.get(q)];
-      }
-    }
-  } catch (error) {
-    console.error('Index search error:', error);
-  }
-  
-  // Fallback to database query
-  const db = getDatabase();
   const res = await executeSql(db, `SELECT _id, vehicleType, regNo, chassisNo, loanNo, bank, make, customerName, address
     FROM vehicles WHERE chassisLc LIKE ?`, [`%${q}%`] );
   return res?.rows?._array || [];
 };
 
-// Progressive search with background prefetching for 0ms response
-export const progressiveSearch = async (input, onProgress = null) => {
-  const clean = String(input || '').replace(/\D/g, '').slice(0, 4);
-  if (clean.length < 2) return [];
-  
-  // Check progressive cache first (INSTANT)
-  if (_progressiveCache.has(clean)) {
-    const cached = _progressiveCache.get(clean);
-    console.log(`Progressive cache hit for ${clean}: ${cached.length} results`);
-    return cached;
-  }
-  
-  // Start background search for longer inputs
-  if (clean.length >= 2) {
-    startBackgroundSearch(clean, onProgress);
-  }
-  
-  // Return partial results if available
-  return await getPartialResults(clean);
-};
-
-// Start background search for progressive results
-const startBackgroundSearch = (input, onProgress = null) => {
-  // Clear previous timeout
-  if (_backgroundSearchTimeout) {
-    clearTimeout(_backgroundSearchTimeout);
-  }
-  
-  // Start background search after small delay
-  _backgroundSearchTimeout = setTimeout(async () => {
-    try {
-      const results = await searchByRegSuffix(input);
-      
-      // Cache the results for instant future access
-      _progressiveCache.set(input, results);
-      
-      // Notify progress if callback provided
-      if (onProgress) {
-        onProgress(results);
-      }
-      
-      console.log(`Background search completed for ${input}: ${results.length} results`);
-    } catch (error) {
-      console.error('Background search error:', error);
-    }
-  }, 50); // 50ms delay for background processing
-};
-
-// Get partial results for progressive display
-const getPartialResults = async (input) => {
-  try {
-    const index = await getSearchIndex();
-    if (index) {
-      const partialResults = [];
-      
-      // Find all regSuffixes that start with input
-      for (const [suffix, vehicles] of index.regSuffix) {
-        if (suffix.startsWith(input)) {
-          partialResults.push(...vehicles);
-        }
-      }
-      
-      // Limit results for performance
-      return partialResults.slice(0, 20);
-    }
-  } catch (error) {
-    console.error('Partial search error:', error);
-  }
-  
-  return [];
-};
-
-// Smart prediction based on typing patterns
-export const predictNextDigits = async (input) => {
-  const clean = String(input || '').replace(/\D/g, '').slice(0, 4);
-  if (clean.length < 2) return [];
-  
-  try {
-    const index = await getSearchIndex();
-    if (index) {
-      const predictions = new Map();
-      
-      // Find all regSuffixes that start with input
-      for (const [suffix, vehicles] of index.regSuffix) {
-        if (suffix.startsWith(clean)) {
-          const nextDigit = suffix[clean.length];
-          if (nextDigit) {
-            if (!predictions.has(nextDigit)) {
-              predictions.set(nextDigit, 0);
-            }
-            predictions.set(nextDigit, predictions.get(nextDigit) + vehicles.length);
-          }
-        }
-      }
-      
-      // Sort by frequency and return top predictions
-      return Array.from(predictions.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([digit, count]) => ({ digit, count }));
-    }
-  } catch (error) {
-    console.error('Prediction error:', error);
-  }
-  
-  return [];
-};
-
-// Clear progressive cache when needed
-export const clearProgressiveCache = () => {
-  _progressiveCache.clear();
-  console.log('Progressive cache cleared');
-};
-
-// New: Ultra-fast partial search for suggestions
-export const searchSuggestions = async (input) => {
-  const clean = String(input || '').replace(/\D/g, '').slice(0, 4);
-  if (clean.length < 2) return [];
-  
-  try {
-    const index = await getSearchIndex();
-    if (index) {
-      const suggestions = [];
-      // Find all regSuffixes that start with input
-      for (const [suffix, vehicles] of index.regSuffix) {
-        if (suffix.startsWith(clean)) {
-          suggestions.push({
-            suffix,
-            count: vehicles.length,
-            sample: vehicles[0] // First vehicle as sample
-          });
-        }
-      }
-      return suggestions.slice(0, 5); // Limit to 5 suggestions
-    }
-  } catch (error) {
-    console.error('Suggestion search error:', error);
-  }
-  
-  return [];
+// Pagination support for browsing offline data
+export const listVehiclesPage = async (offset = 0, limit = 50) => {
+  const db = getDatabase();
+  const safeLimit = Math.max(1, Math.min(200, parseInt(limit) || 50));
+  const safeOffset = Math.max(0, parseInt(offset) || 0);
+  const res = await executeSql(db, `
+    SELECT _id, vehicleType, regNo, chassisNo, loanNo, bank, make, customerName, address
+    FROM vehicles
+    ORDER BY regNo ASC
+    LIMIT ? OFFSET ?
+  `, [safeLimit, safeOffset]);
+  return res?.rows?._array || [];
 };
 
 export const resetSeen = async () => {
@@ -477,34 +341,33 @@ export const markSeenIds = async (ids) => {
   const db = getDatabase();
   const chunkSize = 900;
   let cnt = 0;
-  
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
     
-    try {
-      // For new API (SDK 50+)
-      if (db.execSync) {
-        for (const id of chunk) {
-          db.execSync('INSERT OR REPLACE INTO sync_seen (_id) VALUES (?)', [String(id)]);
-        }
-        cnt += chunk.length;
-      } else if (db.transaction) {
-        // Legacy API
-        await new Promise((resolve, reject) => {
-          db.transaction(tx => {
-            try {
-              for (const id of chunk) {
-                tx.executeSql('INSERT OR REPLACE INTO sync_seen (_id) VALUES (?)', [String(id)]);
-              }
-            } catch (e) { reject(e); }
-          }, reject, () => { cnt += chunk.length; resolve(); });
+    if (_isNewAPI) {
+      // New API - serialize with lock
+      try {
+        await runLocked(() => {
+          for (const id of chunk) {
+            db.runSync('INSERT OR REPLACE INTO sync_seen (_id) VALUES (?)', [String(id)]);
+          }
         });
-      } else {
-        throw new Error('Database not properly initialized');
+        cnt += chunk.length;
+      } catch (e) {
+        console.error('Mark seen IDs error (new API):', e);
+        throw e;
       }
-    } catch (error) {
-      console.error('Error marking seen IDs:', error);
-      // Continue with next chunk even if one fails
+    } else {
+      // Legacy API - transaction based
+      await new Promise((resolve, reject) => {
+        db.transaction(tx => {
+          try {
+            for (const id of chunk) {
+              tx.executeSql('INSERT OR REPLACE INTO sync_seen (_id) VALUES (?)', [String(id)]);
+            }
+          } catch (e) { reject(e); }
+        }, reject, () => { cnt += chunk.length; resolve(); });
+      });
     }
   }
   return cnt;
@@ -513,6 +376,46 @@ export const markSeenIds = async (ids) => {
 export const deleteNotSeen = async () => {
   const db = getDatabase();
   await executeSql(db, 'DELETE FROM vehicles WHERE _id NOT IN (SELECT _id FROM sync_seen)');
+};
+
+export const countSeen = async () => {
+  try {
+    const db = getDatabase();
+    const res = await executeSql(db, 'SELECT COUNT(1) as c FROM sync_seen');
+    return res?.rows?._array?.[0]?.c || 0;
+  } catch (_) {
+    return 0;
+  }
+};
+
+export const rebuildSearchIndex = async () => {
+  const db = getDatabase();
+  // SQLite automatically maintains indexes, but we can run ANALYZE to update statistics
+  try {
+    await executeSql(db, 'ANALYZE');
+    console.log('Search index rebuilt successfully');
+  } catch (error) {
+    console.log('Search index rebuild completed (ANALYZE not supported)');
+  }
+};
+
+// Get subset of ids that already exist locally
+export const getExistingIds = async (ids) => {
+  if (!Array.isArray(ids) || ids.length === 0) return new Set();
+  const db = getDatabase();
+  const existing = new Set();
+  const chunkSize = 900;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => '?').join(',');
+    try {
+      const res = await executeSql(db, `SELECT _id FROM vehicles WHERE _id IN (${placeholders})`, chunk.map(x => String(x)));
+      (res?.rows?._array || []).forEach(row => existing.add(String(row._id)));
+    } catch (e) {
+      console.log('getExistingIds error:', e.message);
+    }
+  }
+  return existing;
 };
 
 

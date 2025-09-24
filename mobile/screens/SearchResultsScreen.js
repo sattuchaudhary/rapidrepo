@@ -4,13 +4,18 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import { getBaseURL } from '../utils/config';
-import { searchByRegSuffix, searchByChassis, initDatabase, buildSearchIndex as buildDbSearchIndex } from '../utils/db';
+import * as FileSystem from 'expo-file-system/legacy';
+import { searchByRegSuffix, searchByChassis } from '../utils/db';
 
 export default function SearchResultsScreen({ route, navigation }) {
-  const { q = '', preloadedData = null, fromDashboard = false, instantSearch = false } = route.params || {};
+  const { q = '', preloadedData = null, fromDashboard = false, instantSearch = false, offline = false } = route.params || {};
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState(Array.isArray(preloadedData) ? preloadedData : []);
+  
+  // Initialize results with preloadedData if available
+  const initialResults = Array.isArray(preloadedData) && preloadedData.length > 0 ? preloadedData : [];
+  const [results, setResults] = useState(initialResults);
+  
   const [error, setError] = useState('');
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState(null);
@@ -22,30 +27,8 @@ export default function SearchResultsScreen({ route, navigation }) {
   const [searchCache, setSearchCache] = useState(new Map());
   const [searchIndex, setSearchIndex] = useState(new Map());
   const [azMode, setAzMode] = useState(true);
+  const [hasUserSearched, setHasUserSearched] = useState(false);
 
-  // Debug function to compare search results
-  const debugSearchResults = (qVal, filtered, unique) => {
-    console.log(`=== SEARCH DEBUG for ${qVal} ===`);
-    console.log(`Total offline data: ${offlineData?.length || 0}`);
-    console.log(`Filtered results: ${filtered.length}`);
-    console.log(`Unique results: ${unique.length}`);
-    
-    // Show first few results for debugging
-    if (filtered.length > 0) {
-      console.log('First 5 filtered results:');
-      filtered.slice(0, 5).forEach((item, i) => {
-        console.log(`${i+1}. RegNo: ${item.regNo}, Chassis: ${item.chassisNo}`);
-      });
-    }
-    
-    if (unique.length > 0) {
-      console.log('First 5 unique results:');
-      unique.slice(0, 5).forEach((item, i) => {
-        console.log(`${i+1}. RegNo: ${item.regNo}, Chassis: ${item.chassisNo}`);
-      });
-    }
-    console.log('=== END DEBUG ===');
-  };
 
   // Build search index for instant lookups (local in-screen)
   const buildLocalSearchIndex = (data) => {
@@ -72,16 +55,14 @@ export default function SearchResultsScreen({ route, navigation }) {
     });
     
     setSearchIndex({ regIndex, chassisIndex });
-    console.log(`Search index built: ${regIndex.size} reg suffixes, ${chassisIndex.size} chassis prefixes`);
   };
 
   const runSearch = async (qVal, type, showLoading = false) => {
     try {
       // Check cache first for INSTANT results (no loading state)
-      const cacheKey = `${qVal}_${type}`;
+      const cacheKey = `${qVal}_${type}_${offline ? 'offline' : 'online'}`;
       if (searchCache.has(cacheKey)) {
         const cachedResults = searchCache.get(cacheKey);
-        console.log(`Using cached results: ${cachedResults.length} items`);
         setResults(cachedResults);
         setError('');
         return; // No loading state for cached results
@@ -93,178 +74,144 @@ export default function SearchResultsScreen({ route, navigation }) {
       }
       setError('');
       
-      // PRIORITY 1: Use SQLite if available (FAST - NO LOADING)
-      if (type === 'reg' && /^\d{4}$/.test(qVal)) {
-        try {
-          const rows = await searchByRegSuffix(qVal);
-          if (rows.length > 0) {
-            setResults(rows);
-            setLoading(false);
-            // Cache the results for instant future access
-            setSearchCache(prev => {
-              const newCache = new Map(prev);
-              newCache.set(cacheKey, rows);
-              if (newCache.size > 200) { // Increased cache size
-                const firstKey = newCache.keys().next().value;
-                newCache.delete(firstKey);
+      // In OFFLINE mode, always prefer full SQLite dataset over any preloaded subset
+      const useLocalData = offline || (Array.isArray(offlineData) && offlineData.length > 0);
+      if (useLocalData) {
+        // LOCAL MODE (offline or local dataset available)
+        if (!offline && offlineData && Array.isArray(offlineData) && offlineData.length > 0) {
+          let filtered = [];
+          
+          // SIMPLE: Find registration numbers ending with the 4-digit query
+          if (type === 'reg' && /^\d{4}$/.test(qVal)) {
+            for (let i = 0; i < offlineData.length; i++) {
+              const item = offlineData[i];
+              const regNo = String(item.regNo || '').trim();
+              
+              // Simple check: Does registration number end with the 4-digit query?
+              if (regNo.endsWith(qVal)) {
+                filtered.push(item);
               }
-              return newCache;
-            });
-            return;
-          }
-        } catch (error) {
-          console.error('SQLite reg search error:', error);
-        }
-      }
-      
-      if (type === 'chassis' && String(qVal).trim().length >= 3) {
-        try {
-          const rows = await searchByChassis(qVal);
-          if (rows.length > 0) {
-            setResults(rows);
-            setLoading(false);
-            // Cache the results for instant future access
-            setSearchCache(prev => {
-              const newCache = new Map(prev);
-              newCache.set(cacheKey, rows);
-              if (newCache.size > 200) { // Increased cache size
-                const firstKey = newCache.keys().next().value;
-                newCache.delete(firstKey);
+            }
+          } else if (type === 'chassis' && qVal.length >= 3) {
+            // Direct search for chassis
+            const needle = String(qVal).trim().toLowerCase();
+            for (let i = 0; i < offlineData.length; i++) {
+              const item = offlineData[i];
+              const chassisNo = String(item.chassisNo || '').toLowerCase();
+              
+              if (chassisNo.includes(needle)) {
+                filtered.push(item);
               }
-              return newCache;
-            });
-            return;
-          }
-        } catch (error) {
-          console.error('SQLite chassis search error:', error);
-        }
-      }
-
-      // PRIORITY 2: Use in-memory offline dump if present
-      if (offlineData && Array.isArray(offlineData) && offlineData.length > 0) {
-        let filtered = [];
-        console.log(`Searching in ${offlineData.length} offline records for: ${qVal} (type: ${type})`);
-        
-        // Use same search logic as Dashboard for consistency
-        if (type === 'reg' && /^\d{4}$/.test(qVal)) {
-          // Direct search for 4-digit registration - EXACT same as Dashboard
-          const searchTerm = String(qVal).toLowerCase();
-          for (let i = 0; i < offlineData.length; i++) {
-            const item = offlineData[i];
-            const regNo = String(item.regNo || '').toLowerCase();
-            const chassisNo = String(item.chassisNo || '').toLowerCase();
-            
-            // Check if search term matches end of regNo or chassisNo (EXACT same as Dashboard)
-            if (regNo.endsWith(searchTerm) || chassisNo.includes(searchTerm)) {
-              filtered.push(item);
+            }
+          } else {
+            // Fallback to direct search for other cases
+            if (type === 'reg') {
+              const tail = new RegExp(String(qVal) + '$', 'i');
+              filtered = offlineData.filter(it => tail.test(String(it.regNo)));
+            } else if (type === 'chassis') {
+              const needle = String(qVal).trim().toLowerCase();
+              filtered = offlineData.filter(it => String(it.chassisNo || '').toLowerCase().includes(needle));
+            } else {
+              // For auto type, search both
+              const tail = new RegExp(String(qVal) + '$', 'i');
+              const needle = String(qVal).trim().toLowerCase();
+              filtered = offlineData.filter(it => 
+                tail.test(String(it.regNo)) || 
+                String(it.chassisNo || '').toLowerCase().includes(needle)
+              );
             }
           }
-        } else if (type === 'chassis' && qVal.length >= 3) {
-          // Direct search for chassis
-          const needle = String(qVal).trim().toLowerCase();
-          for (let i = 0; i < offlineData.length; i++) {
-            const item = offlineData[i];
-            const chassisNo = String(item.chassisNo || '').toLowerCase();
-            
-            if (chassisNo.includes(needle)) {
-              filtered.push(item);
-            }
+          
+          // Deduplicate by normalized regNo
+          const seen = new Set();
+          const unique = [];
+          for (const it of filtered) {
+            const k = String(it.regNo || '').trim().toUpperCase();
+            if (!k || seen.has(k)) continue;
+            seen.add(k);
+            unique.push(it);
           }
+          
+          // Cache results for future instant access
+          setSearchCache(prev => {
+            const newCache = new Map(prev);
+            newCache.set(cacheKey, unique);
+            if (newCache.size > 100) { // Increased cache size
+              const firstKey = newCache.keys().next().value;
+              newCache.delete(firstKey);
+            }
+            return newCache;
+          });
+          
+          
+          setResults(unique);
+          setError('');
+          setLoading(false);
+          return; // Exit early with offline results
         } else {
-          // Fallback to direct search for other cases
+          // Fallback to SQLite-based offline search
+          let rows = [];
+          if (type === 'reg' && /^\d{4}$/.test(qVal)) {
+            rows = await searchByRegSuffix(qVal);
+          } else if (type === 'chassis' && String(qVal).trim().length >= 3) {
+            rows = await searchByChassis(qVal);
+          } else {
+            // Try both if type ambiguous
+            const a = await searchByRegSuffix(String(qVal).slice(-4));
+            const b = await searchByChassis(qVal);
+            const seen = new Set();
+            rows = [];
+            for (const it of [...a, ...b]) {
+              const k = String(it._id || it.regNo || '').toUpperCase();
+              if (seen.has(k)) continue;
+              seen.add(k);
+              rows.push(it);
+            }
+          }
+          setResults(rows || []);
+          setError(rows && rows.length > 0 ? '' : '');
+          setLoading(false);
+          return;
+        }
+      } else {
+        // ONLINE MODE: Fetch from server
+        const token = await SecureStore.getItemAsync('token');
+        try {
+          const res = await axios.get(`${getBaseURL()}/api/tenant/data/search`, {
+            headers: { Authorization: `Bearer ${token}` },
+            params: { q: qVal, type: type, limit: 1000 }
+          });
+          let items = res.data?.data || [];
           if (type === 'reg') {
             const tail = new RegExp(String(qVal) + '$', 'i');
-            filtered = offlineData.filter(it => tail.test(String(it.regNo)));
+            items = items.filter(it => tail.test(String(it.regNo)));
           } else if (type === 'chassis') {
             const needle = String(qVal).trim().toLowerCase();
-            filtered = offlineData.filter(it => String(it.chassisNo || '').toLowerCase().includes(needle));
-          } else {
-            // For auto type, search both
-            const tail = new RegExp(String(qVal) + '$', 'i');
-            const needle = String(qVal).trim().toLowerCase();
-            filtered = offlineData.filter(it => 
-              tail.test(String(it.regNo)) || 
-              String(it.chassisNo || '').toLowerCase().includes(needle)
-            );
+            items = items.filter(it => String(it.chassisNo || '').toLowerCase().includes(needle));
           }
-        }
-        
-        // Deduplicate by normalized regNo
-        const seen = new Set();
-        const unique = [];
-        for (const it of filtered) {
-          const k = String(it.regNo || '').trim().toUpperCase();
-          if (!k || seen.has(k)) continue;
-          seen.add(k);
-          unique.push(it);
-        }
-        
-        // Cache results for future instant access
-        setSearchCache(prev => {
-          const newCache = new Map(prev);
-          newCache.set(cacheKey, unique);
-          if (newCache.size > 100) { // Increased cache size
-            const firstKey = newCache.keys().next().value;
-            newCache.delete(firstKey);
+          const seen = new Set();
+          const unique = [];
+          for (const it of items) {
+            const k = String(it.regNo || '').trim().toUpperCase();
+            if (!k || seen.has(k)) continue;
+            seen.add(k);
+            unique.push(it);
           }
-          return newCache;
-        });
-        
-        // Debug search results
-        debugSearchResults(qVal, filtered, unique);
-        
-        console.log(`Offline search completed: ${unique.length} results for ${qVal} (filtered: ${filtered.length}, unique: ${unique.length})`);
-        setResults(unique);
-        setError('');
-        setLoading(false);
-        return; // Exit early with offline results
-      }
-      
-      // PRIORITY 2: Fallback to online search if no offline data
-      const token = await SecureStore.getItemAsync('token');
-      try {
-        const res = await axios.get(`${getBaseURL()}/api/tenant/data/search`, {
-          headers: { Authorization: `Bearer ${token}` },
-          params: { q: qVal, type: type, limit: 1000 }
-        });
-        let items = res.data?.data || [];
-        if (type === 'reg') {
-          const tail = new RegExp(String(qVal) + '$', 'i');
-          items = items.filter(it => tail.test(String(it.regNo)));
-        } else if (type === 'chassis') {
-          const needle = String(qVal).trim().toLowerCase();
-          items = items.filter(it => String(it.chassisNo || '').toLowerCase().includes(needle));
+          setSearchCache(prev => {
+            const newCache = new Map(prev);
+            newCache.set(cacheKey, unique);
+            if (newCache.size > 50) {
+              const firstKey = newCache.keys().next().value;
+              newCache.delete(firstKey);
+            }
+            return newCache;
+          });
+          setResults(unique);
+        } catch (err) {
+          setError(err.response?.data?.message || 'Search failed');
         }
-        // Deduplicate by normalized regNo
-        const seen = new Set();
-        const unique = [];
-        for (const it of items) {
-          const k = String(it.regNo || '').trim().toUpperCase();
-          if (!k || seen.has(k)) continue;
-          seen.add(k);
-          unique.push(it);
-        }
-        
-        // Cache the results for future use
-        setSearchCache(prev => {
-          const newCache = new Map(prev);
-          newCache.set(cacheKey, unique);
-          // Limit cache size to prevent memory issues
-          if (newCache.size > 50) {
-            const firstKey = newCache.keys().next().value;
-            newCache.delete(firstKey);
-          }
-          return newCache;
-        });
-        
-        console.log(`Online search completed: ${unique.length} results for ${qVal}`);
-        setResults(unique);
-      } catch (err) {
-        console.error('Online search failed:', err);
-        setError(err.response?.data?.message || 'Search failed');
       }
     } finally { 
-      console.log(`Search finished for ${qVal}, loading: false`);
       setLoading(false); 
     }
   };
@@ -299,40 +246,53 @@ export default function SearchResultsScreen({ route, navigation }) {
     return { left, right };
   }, [results, azMode]);
 
-  // Handle pre-loaded data from Dashboard
+  // Handle pre-loaded data from Dashboard (authoritative)
   useEffect(() => {
-    if (preloadedData && fromDashboard) {
-      console.log(`Using pre-loaded data: ${preloadedData.length} results`);
-      setResults(preloadedData);
-      setLoading(false);
-      setError('');
+    if (fromDashboard && Array.isArray(preloadedData) && preloadedData.length > 0) {
+      // Force update results immediately with timeout to ensure state update
+      setTimeout(() => {
+        setResults(preloadedData);
+        setLoading(false);
+        setError('');
+      }, 100);
+      
+      // Prepare data source for future searches
+      if (!offline) {
+        // Only keep local copy when online; in offline mode we want to use full SQLite dataset
+        setOfflineData(preloadedData);
+        buildLocalSearchIndex(preloadedData);
+      }
+      
       return;
     }
-  }, [preloadedData, fromDashboard]);
+  }, [preloadedData, fromDashboard, offline, q]);
 
-  // Instant search on screen load
+  // Instant search on screen load (skip if dashboard provided data)
   useEffect(() => {
     const value = String(q || '').trim();
+    
+    // Skip if dashboard provided data (both online and offline)
+    if (fromDashboard && Array.isArray(preloadedData) && preloadedData.length > 0) {
+      return;
+    }
+    
     if (/^\d{4}$/.test(value)) { 
       // Instant search - no loading state
       runSearch(value, 'reg', false);
     }
-  }, [q]);
+  }, [q, fromDashboard, preloadedData]);
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(async () => {
       try {
-        // Pre-initialize database for faster searches (deferred until after first paint)
-        await initDatabase();
-        // Build search index for ultra-fast searches (DB-level)
-        await buildDbSearchIndex();
-        
-        const cached = await SecureStore.getItemAsync('offline_dump');
-        if (cached) {
-          const data = JSON.parse(cached);
-          const arr = Array.isArray(data) ? data : [];
+        // Load offline dump from filesystem (created by download flow)
+        const dataPath = `${FileSystem.documentDirectory}offline_data.json`;
+        const exists = await FileSystem.getInfoAsync(dataPath);
+        if (exists?.exists) {
+          const offlineStr = await FileSystem.readAsStringAsync(dataPath);
+          const parsed = JSON.parse(offlineStr);
+          const arr = Array.isArray(parsed?.records) ? parsed.records : [];
           setOfflineData(arr);
-          // Build search index for instant lookups (local data)
           buildLocalSearchIndex(arr);
         }
       } catch (error) {
@@ -346,53 +306,80 @@ export default function SearchResultsScreen({ route, navigation }) {
   const renderListItem = useCallback(({ item }) => (
     <TouchableOpacity key={String(item._id)} style={styles.listItem} onPress={async () => {
       try {
-        const token = await SecureStore.getItemAsync('token');
-        const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setDetail(res.data?.data || null);
+        if (offline) {
+          // OFFLINE MODE: Use local data directly
+          setDetail(item);
+          setDetailOpen(true);
+        } else {
+          // ONLINE MODE: Fetch from server
+          const token = await SecureStore.getItemAsync('token');
+          const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setDetail(res.data?.data || null);
+          setDetailOpen(true);
+          
+          // Log search history to server
+          try {
+            await axios.post(`${getBaseURL()}/api/tenant/data/search/history`, {
+              vehicleId: item._id,
+              regNo: item.regNo || '',
+              chassisNo: item.chassisNo || '',
+              query: regSuffixInput || chassisInput || '',
+              type: regSuffixInput ? 'reg' : 'chassis'
+            }, { headers: { Authorization: `Bearer ${token}` } });
+          } catch (_) {}
+        }
+      } catch (error) {
+        console.error('Error fetching vehicle details:', error);
+        // Fallback to local data if server fails
+        setDetail(item);
         setDetailOpen(true);
-        try {
-          await axios.post(`${getBaseURL()}/api/tenant/data/search/history`, {
-            vehicleId: item._id,
-            regNo: item.regNo || '',
-            chassisNo: item.chassisNo || '',
-            query: regSuffixInput || chassisInput || '',
-            type: regSuffixInput ? 'reg' : 'chassis'
-          }, { headers: { Authorization: `Bearer ${token}` } });
-        } catch (_) {}
-      } catch (_) {}
+      }
     }}>
       <Text numberOfLines={1} style={styles.listTitle}>{item.regNo || ''}</Text>
     </TouchableOpacity>
-  ), [regSuffixInput, chassisInput]);
+  ), [regSuffixInput, chassisInput, offline]);
 
-  // Trigger registration suffix search when exactly 4 digits (INSTANT)
+  // Trigger registration suffix search when exactly 4 digits
   useEffect(() => {
     const value = String(regSuffixInput || '').trim();
+    
+    // Skip if this is the initial load from dashboard and user hasn't searched yet
+    if (fromDashboard && Array.isArray(preloadedData) && !hasUserSearched && value === String(q || '').trim()) {
+      return;
+    }
+    
     if (!/^\d{4}$/.test(value)) { 
       setResults([]);
       return; 
     }
     
-    console.log(`Triggering reg search for: ${value}`);
+    // Mark that user has started searching
+    setHasUserSearched(true);
     
     // INSTANT search - no loading state
     runSearch(value, 'reg', false);
-  }, [regSuffixInput]);
+  }, [regSuffixInput, q, fromDashboard, preloadedData, hasUserSearched]);
 
   // Trigger chassis search when input length >= 3 (INSTANT for local data)
   useEffect(() => {
     const value = String(chassisInput || '').trim();
+    
+    // Skip if this is the initial load from dashboard and user hasn't searched yet
+    if (fromDashboard && Array.isArray(preloadedData) && !hasUserSearched && value === '') {
+      return;
+    }
+    
     if (value.length >= 3) {
-      console.log(`Triggering chassis search for: ${value}`);
-      
+      // Mark that user has started searching
+      setHasUserSearched(true);
       // INSTANT search for local data - no loading state
       runSearch(value, 'chassis', false);
     } else if (value.length === 0) {
       setResults([]);
     }
-  }, [chassisInput]);
+  }, [chassisInput, fromDashboard, preloadedData, hasUserSearched]);
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: insets.top }] }>
@@ -414,34 +401,15 @@ export default function SearchResultsScreen({ route, navigation }) {
           maxLength={4}
         />
       </View>
-      <View style={styles.segmentWrap}>
-        <TouchableOpacity style={[styles.segBtn, azMode ? styles.segBtnActive : null]} onPress={() => setAzMode(true)}>
-          <Text style={[styles.segText, azMode ? styles.segTextActive : null]}>A–Z</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.segBtn, !azMode ? styles.segBtnActive : null]} onPress={() => setAzMode(false)}>
-          <Text style={[styles.segText, !azMode ? styles.segTextActive : null]}>Default</Text>
-        </TouchableOpacity>
-      </View>
+      {/* A–Z is default; toggle buttons removed */}
 
       {!!error && <Text style={styles.error}>{error}</Text>}
+      
+      
       {results.length === 0 && (
         <View style={styles.center}><Text>No results found</Text></View>
       )}
-      {results.length > 0 && !azMode && (
-        <FlatList
-          style={{ flex: 1 }}
-          data={results}
-          keyExtractor={keyExtractor}
-          renderItem={renderListItem}
-          numColumns={2}
-          columnWrapperStyle={{ gap: 8 }}
-          ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-          initialNumToRender={24}
-          maxToRenderPerBatch={40}
-          windowSize={10}
-          removeClippedSubviews
-        />
-      )}
+      {/* Non A–Z list removed; always showing A–Z columns */}
       {results.length > 0 && azMode && (
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 6 }}>
           <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -449,13 +417,25 @@ export default function SearchResultsScreen({ route, navigation }) {
               {azColumns.left.map(item => (
                 <TouchableOpacity key={String(item._id)} style={styles.listItem} onPress={async () => {
                   try {
-                    const token = await SecureStore.getItemAsync('token');
-                    const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
-                      headers: { Authorization: `Bearer ${token}` }
-                    });
-                    setDetail(res.data?.data || null);
+                    if (offline) {
+                      // OFFLINE MODE: Use local data directly
+                      setDetail(item);
+                      setDetailOpen(true);
+                    } else {
+                      // ONLINE MODE: Fetch from server
+                      const token = await SecureStore.getItemAsync('token');
+                      const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                      });
+                      setDetail(res.data?.data || null);
+                      setDetailOpen(true);
+                    }
+                  } catch (error) {
+                    console.error('Error fetching vehicle details (A-Z):', error);
+                    // Fallback to local data if server fails
+                    setDetail(item);
                     setDetailOpen(true);
-                  } catch (_) {}
+                  }
                 }}>
                   <Text numberOfLines={1} style={styles.listTitle}>{item.regNo || ''}</Text>
                 </TouchableOpacity>
@@ -465,13 +445,25 @@ export default function SearchResultsScreen({ route, navigation }) {
               {azColumns.right.map(item => (
                 <TouchableOpacity key={String(item._id)} style={styles.listItem} onPress={async () => {
                   try {
-                    const token = await SecureStore.getItemAsync('token');
-                    const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
-                      headers: { Authorization: `Bearer ${token}` }
-                    });
-                    setDetail(res.data?.data || null);
+                    if (offline) {
+                      // OFFLINE MODE: Use local data directly
+                      setDetail(item);
+                      setDetailOpen(true);
+                    } else {
+                      // ONLINE MODE: Fetch from server
+                      const token = await SecureStore.getItemAsync('token');
+                      const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                      });
+                      setDetail(res.data?.data || null);
+                      setDetailOpen(true);
+                    }
+                  } catch (error) {
+                    console.error('Error fetching vehicle details (A-Z):', error);
+                    // Fallback to local data if server fails
+                    setDetail(item);
                     setDetailOpen(true);
-                  } catch (_) {}
+                  }
                 }}>
                   <Text numberOfLines={1} style={styles.listTitle}>{item.regNo || ''}</Text>
                 </TouchableOpacity>
@@ -485,16 +477,103 @@ export default function SearchResultsScreen({ route, navigation }) {
         <View style={styles.modalWrap}>
           <View style={styles.modalCard}>
             {detail ? (
-              <>
-                <Text style={styles.modalTitle}>{detail.regNo || 'Vehicle'}</Text>
-                <Text style={styles.muted}>Chassis: {detail.chassisNo || '—'}</Text>
-                <Text style={styles.muted}>Loan: {detail.loanNo || '—'}</Text>
-                <Text style={styles.muted}>Bank: {detail.bank || '—'}</Text>
-                <Text style={styles.muted}>Make: {detail.make || '—'}</Text>
-                <Text style={styles.muted}>Customer: {detail.customerName || '—'}</Text>
-                <Text style={styles.muted}>Address: {detail.address || '—'}</Text>
-                <View style={{ height: 12 }} />
-                <View style={{ flexDirection: 'row', gap: 8 }}>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {/* Header Section */}
+                <View style={styles.modalHeader}>
+                  <View style={styles.vehicleIcon}>
+                    <Text style={styles.vehicleIconText}>🚗</Text>
+                  </View>
+                  <View style={styles.headerContent}>
+                    <Text style={styles.modalTitle}>{detail.regNo || 'Vehicle'}</Text>
+                    <Text style={styles.vehicleType}>{detail.vehicleType || 'Vehicle'}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setDetailOpen(false)} style={styles.closeBtn}>
+                    <Text style={styles.closeBtnText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Details Section */}
+                <View style={styles.detailsSection}>
+                  <Text style={styles.sectionTitle}>Vehicle Information</Text>
+                  
+                  <View style={styles.detailRow}>
+                    <View style={styles.detailIcon}>
+                      <Text style={styles.detailIconText}>🔢</Text>
+                    </View>
+                    <View style={styles.detailContent}>
+                      <Text style={styles.detailLabel}>Registration Number</Text>
+                      <Text style={styles.detailValue}>{detail.regNo || '—'}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailRow}>
+                    <View style={styles.detailIcon}>
+                      <Text style={styles.detailIconText}>🔧</Text>
+                    </View>
+                    <View style={styles.detailContent}>
+                      <Text style={styles.detailLabel}>Chassis Number</Text>
+                      <Text style={styles.detailValue}>{detail.chassisNo || '—'}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailRow}>
+                    <View style={styles.detailIcon}>
+                      <Text style={styles.detailIconText}>📄</Text>
+                    </View>
+                    <View style={styles.detailContent}>
+                      <Text style={styles.detailLabel}>Loan Number</Text>
+                      <Text style={styles.detailValue}>{detail.loanNo || '—'}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailRow}>
+                    <View style={styles.detailIcon}>
+                      <Text style={styles.detailIconText}>🏦</Text>
+                    </View>
+                    <View style={styles.detailContent}>
+                      <Text style={styles.detailLabel}>Bank</Text>
+                      <Text style={styles.detailValue}>{detail.bank || '—'}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailRow}>
+                    <View style={styles.detailIcon}>
+                      <Text style={styles.detailIconText}>🏭</Text>
+                    </View>
+                    <View style={styles.detailContent}>
+                      <Text style={styles.detailLabel}>Make</Text>
+                      <Text style={styles.detailValue}>{detail.make || '—'}</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Customer Section */}
+                <View style={styles.detailsSection}>
+                  <Text style={styles.sectionTitle}>Customer Information</Text>
+                  
+                  <View style={styles.detailRow}>
+                    <View style={styles.detailIcon}>
+                      <Text style={styles.detailIconText}>👤</Text>
+                    </View>
+                    <View style={styles.detailContent}>
+                      <Text style={styles.detailLabel}>Customer Name</Text>
+                      <Text style={styles.detailValue}>{detail.customerName || '—'}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailRow}>
+                    <View style={styles.detailIcon}>
+                      <Text style={styles.detailIconText}>📍</Text>
+                    </View>
+                    <View style={styles.detailContent}>
+                      <Text style={styles.detailLabel}>Address</Text>
+                      <Text style={styles.detailValue}>{detail.address || '—'}</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Action Buttons */}
+                <View style={styles.actionSection}>
                   <TouchableOpacity style={styles.primaryBtn} onPress={async () => {
                     try {
                       setConfirming(true);
@@ -506,24 +585,26 @@ export default function SearchResultsScreen({ route, navigation }) {
                       setDetailOpen(false);
                     } catch (_) { setConfirming(false); }
                   }}>
-                    <Text style={styles.primaryBtnText}>{confirming ? 'Confirming...' : 'Confirm Vehicle'}</Text>
+                    <Text style={styles.primaryBtnText}>
+                      {confirming ? '⏳ Confirming...' : '✅ Confirm Vehicle'}
+                    </Text>
                   </TouchableOpacity>
+                  
                   <TouchableOpacity style={styles.whatsBtn} onPress={() => {
-                    const text = `Vehicle Details\nReg: ${detail.regNo}\nChassis: ${detail.chassisNo}\nLoan: ${detail.loanNo}\nBank: ${detail.bank}\nCustomer: ${detail.customerName}`;
+                    const text = `🚗 *Vehicle Details*\n\n🔢 *Registration:* ${detail.regNo}\n🔧 *Chassis:* ${detail.chassisNo}\n📄 *Loan:* ${detail.loanNo}\n🏦 *Bank:* ${detail.bank}\n👤 *Customer:* ${detail.customerName}\n📍 *Address:* ${detail.address}`;
                     const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
-                    // Linking imported lazily via require to avoid unused import warning
                     const { Linking } = require('react-native');
                     Linking.openURL(url).catch(() => {});
                   }}>
-                    <Text style={styles.whatsBtnText}>WhatsApp</Text>
+                    <Text style={styles.whatsBtnText}>📱 Share on WhatsApp</Text>
                   </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={() => setDetailOpen(false)} style={{ marginTop: 10 }}>
-                  <Text style={styles.linkish}>Close</Text>
-                </TouchableOpacity>
-              </>
+              </ScrollView>
             ) : (
-              <ActivityIndicator />
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#222636" />
+                <Text style={styles.loadingText}>Loading vehicle details...</Text>
+              </View>
             )}
           </View>
         </View>
@@ -545,15 +626,32 @@ const styles = StyleSheet.create({
   muted: { color: '#666', fontSize: 12 },
   badge: { backgroundColor: '#222636', color: '#fff', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, fontSize: 12, fontWeight: '700' }
   ,input: { backgroundColor: '#F3F4F6', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontWeight: '700', color: '#111' }
-  ,modalWrap: { flex:1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' }
-  ,modalCard: { width: '90%', backgroundColor: '#fff', borderRadius: 16, padding: 16 }
-  ,modalTitle: { fontSize: 18, fontWeight: '800', marginBottom: 8 }
-  ,primaryBtn: { backgroundColor: '#222636', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 }
-  ,primaryBtnText: { color: '#fff', fontWeight: '800' }
-  ,whatsBtn: { backgroundColor: '#25D366', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 }
-  ,whatsBtnText: { color: '#fff', fontWeight: '800' }
+  ,modalWrap: { flex:1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center' }
+  ,modalCard: { width: '95%', maxHeight: '90%', backgroundColor: '#fff', borderRadius: 20, padding: 0, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 }
+  ,modalHeader: { flexDirection: 'row', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', backgroundColor: '#F8FAFC' }
+  ,vehicleIcon: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#222636', alignItems: 'center', justifyContent: 'center', marginRight: 15 }
+  ,vehicleIconText: { fontSize: 24 }
+  ,headerContent: { flex: 1 }
+  ,modalTitle: { fontSize: 22, fontWeight: '800', color: '#111', marginBottom: 4 }
+  ,vehicleType: { fontSize: 14, color: '#666', fontWeight: '600' }
+  ,closeBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }
+  ,closeBtnText: { fontSize: 16, color: '#666', fontWeight: '600' }
+  ,detailsSection: { padding: 20, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }
+  ,sectionTitle: { fontSize: 18, fontWeight: '700', color: '#111', marginBottom: 15, textTransform: 'uppercase', letterSpacing: 0.5 }
+  ,detailRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, paddingVertical: 8 }
+  ,detailIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center', marginRight: 15 }
+  ,detailIconText: { fontSize: 18 }
+  ,detailContent: { flex: 1 }
+  ,detailLabel: { fontSize: 12, color: '#666', fontWeight: '600', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }
+  ,detailValue: { fontSize: 16, color: '#111', fontWeight: '600', lineHeight: 22 }
+  ,actionSection: { padding: 20, gap: 12 }
+  ,primaryBtn: { backgroundColor: '#222636', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 15, alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 }
+  ,primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 }
+  ,whatsBtn: { backgroundColor: '#25D366', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 15, alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 }
+  ,whatsBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 }
+  ,loadingContainer: { padding: 40, alignItems: 'center' }
+  ,loadingText: { marginTop: 15, color: '#666', fontSize: 16, fontWeight: '500' }
   ,linkish: { color: '#007AFF', textAlign: 'center' }
-  ,loadingText: { marginTop: 8, color: '#666', fontSize: 14 }
   ,segmentWrap: { flexDirection: 'row', gap: 8, marginBottom: 8 }
   ,segBtn: { flex: 1, backgroundColor: '#F3F4F6', borderRadius: 10, paddingVertical: 8, alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB' }
   ,segBtnActive: { backgroundColor: '#222636', borderColor: '#222636' }

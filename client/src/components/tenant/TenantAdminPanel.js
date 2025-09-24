@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Drawer,
@@ -21,7 +21,9 @@ import {
   CardContent,
   Grid,
   Chip,
-  CheckCircle
+  CheckCircle,
+  Alert,
+  CircularProgress
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -46,6 +48,7 @@ import {
   TwoWheeler as MotorcycleIcon,
   LocalShipping as TruckIcon
 } from '@mui/icons-material';
+import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import ClientManagement from './ClientManagement';
 import OfficeStaffList from './OfficeStaffList';
@@ -83,17 +86,11 @@ const TenantAdminPanel = () => {
 
   const handleLogout = async () => {
     try {
-      // Close the dropdown first
       handleProfileMenuClose();
-      
-      // Use AuthContext logout
       await logout();
-      
-      // Navigate to login page
       navigate('/login');
     } catch (error) {
       console.error('Logout error:', error);
-      // Force redirect even if there's an error
       navigate('/login');
     }
   };
@@ -184,23 +181,48 @@ const TenantAdminPanel = () => {
     }
   ];
 
-  const stats = {
-    totalRecords: 1250,
-    onHold: 89,
-    inYard: 156,
-    released: 1005,
-    totalVehicles: 892,
-    twoWheeler: 234,
-    fourWheeler: 456,
-    cvData: 202,
-    associatedBanks: [
-      { name: 'MAS FINANCIAL SERVICES', count: 3095 }
-    ],
-    userStats: {
-      officeStaff: 4,
-      repoAgents: 53
+  // Live dashboard state
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [stats, setStats] = useState({
+    totalRecords: 0,
+    onHold: 0,
+    inYard: 0,
+    released: 0,
+    totalVehicles: 0,
+    twoWheeler: 0,
+    fourWheeler: 0,
+    cvData: 0,
+    associatedBanks: [],
+    userStats: { officeStaff: 0, repoAgents: 0 }
+  });
+
+  useEffect(() => {
+    // Only fetch when we're on the dashboard route
+    if (location.pathname === '/tenant') {
+      const fetchStats = async () => {
+        try {
+          setLoading(true);
+          setError('');
+          const token = localStorage.getItem('token');
+          if (!token) throw new Error('No authentication token found');
+          const res = await axios.get('http://localhost:5000/api/tenant/data/dashboard-stats', {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.data?.success) {
+            setStats(res.data.data || {});
+          } else {
+            throw new Error(res.data?.message || 'Failed to load dashboard');
+          }
+        } catch (e) {
+          setError(e.response?.data?.message || e.message || 'Failed to load dashboard');
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchStats();
     }
-  };
+  }, [location.pathname]);
 
   const cardColors = {
     totalRecords: { bg: '#ff6b35', icon: '#ff8a65' },
@@ -350,8 +372,7 @@ const TenantAdminPanel = () => {
       <Drawer
         variant="permanent"
         sx={{
-          // width: drawerWidth,
-      
+          
           flexShrink: 0,
           '& .MuiDrawer-paper': {
             width: drawerWidth,
@@ -470,6 +491,15 @@ const TenantAdminPanel = () => {
               <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', mb: 3 }}>
                 Dashboard
               </Typography>
+
+              {error && (
+                <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
+              )}
+              {loading && (
+                <Box display="flex" justifyContent="center" alignItems="center" sx={{ my: 2 }}>
+                  <CircularProgress />
+                </Box>
+              )}
 
               {/* Overview Cards - Top Row */}
               <Grid container spacing={2} sx={{ mb: 3 }}>

@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const { authenticateUnifiedToken, requireAdmin } = require('../middleware/unifiedAuth');
 const mongoose = require('mongoose');
 const Tenant = require('../models/Tenant');
+// We'll use a local helper to connect to tenant DB to match previous working behavior
 
 // Public: Repo Agent login (tenant-scoped)
 router.post('/agents/login', async (req, res) => {
@@ -200,7 +201,7 @@ router.use(authenticateUnifiedToken, requireAdmin);
 router.get('/test-connection', async (req, res) => {
   try {
     console.log('Testing tenant database connection...');
-    console.log('User:', req.user._id);
+    console.log('User:', req.user.userId);
     console.log('Tenant ID:', req.user.tenantId);
     
     const tenant = await Tenant.findById(req.user.tenantId);
@@ -236,42 +237,22 @@ router.get('/test-connection', async (req, res) => {
   }
 });
 
-// Function to get tenant-specific database connection
+// Function to get tenant-specific database connection (local, dev-friendly)
 const getTenantDB = async (tenantName) => {
   try {
     const dbName = `tenants_${tenantName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-    console.log(`Attempting to connect to tenant database: ${dbName}`);
-    
-    // Check if connection already exists
     if (mongoose.connections.some(conn => conn.name === dbName)) {
-      console.log(`Using existing connection to: ${dbName}`);
       return mongoose.connections.find(conn => conn.name === dbName);
     }
-    
-    // Create new connection to tenant database
-    const tenantConnection = mongoose.createConnection(`mongodb://localhost:27017/${dbName}`, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true
-    });
-    
-    // Wait for connection to be ready
+    const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/rapidrepo';
+    const base = uri.replace(/\/?[^/]+$/, '/');
+    const tenantUri = `${base}${dbName}`;
+    const tenantConnection = mongoose.createConnection(tenantUri, { useNewUrlParser: true, useUnifiedTopology: true });
     await new Promise((resolve, reject) => {
-      tenantConnection.once('connected', () => {
-        console.log(`Successfully connected to tenant database: ${dbName}`);
-        resolve();
-      });
-      
-      tenantConnection.once('error', (err) => {
-        console.error(`Failed to connect to tenant database ${dbName}:`, err.message);
-        reject(err);
-      });
-      
-      // Timeout after 5 seconds
-      setTimeout(() => {
-        reject(new Error(`Connection timeout to ${dbName}`));
-      }, 5000);
+      tenantConnection.once('connected', resolve);
+      tenantConnection.once('error', reject);
+      setTimeout(() => reject(new Error(`Connection timeout to ${dbName}`)), 5000);
     });
-    
     return tenantConnection;
   } catch (error) {
     console.error(`Error connecting to tenant database: ${error.message}`);
@@ -308,13 +289,22 @@ const clearModelCache = () => {
 // Function to get OfficeStaff model for specific tenant
 const getOfficeStaffModel = (tenantConnection) => {
   const connectionName = tenantConnection.name;
-  
-  // Check if model already exists in cache
-  if (modelCache.has(connectionName)) {
-    console.log(`Using cached OfficeStaff model for: ${connectionName}`);
-    return modelCache.get(connectionName);
+  const cacheKey = connectionName + '_OfficeStaff';
+
+  // Prefer an already compiled model on this connection
+  if (tenantConnection.models && tenantConnection.models.OfficeStaff) {
+    const existingModel = tenantConnection.model('OfficeStaff');
+    modelCache.set(cacheKey, existingModel);
+    console.log(`Using existing OfficeStaff model for: ${connectionName}`);
+    return existingModel;
   }
-  
+
+  // Check cache
+  if (modelCache.has(cacheKey)) {
+    console.log(`Using cached OfficeStaff model for: ${connectionName}`);
+    return modelCache.get(cacheKey);
+  }
+
   console.log(`Creating new OfficeStaff model for: ${connectionName}`);
   
   const officeStaffSchema = new mongoose.Schema({
@@ -446,10 +436,19 @@ const getOfficeStaffModel = (tenantConnection) => {
     }
   });
 
-  // Create model and cache it
-  const model = tenantConnection.model('OfficeStaff', officeStaffSchema);
-  modelCache.set(connectionName, model);
-  
+  // Create model and cache it (guard against race conditions)
+  let model;
+  try {
+    model = tenantConnection.model('OfficeStaff', officeStaffSchema);
+  } catch (err) {
+    if (err && err.name === 'OverwriteModelError') {
+      model = tenantConnection.model('OfficeStaff');
+    } else {
+      throw err;
+    }
+  }
+  modelCache.set(cacheKey, model);
+
   console.log(`OfficeStaff model cached for: ${connectionName}`);
   return model;
 };
@@ -457,13 +456,22 @@ const getOfficeStaffModel = (tenantConnection) => {
 // Function to get RepoAgent model for specific tenant
 const getRepoAgentModel = (tenantConnection) => {
   const connectionName = tenantConnection.name;
-  
-  // Check if model already exists in cache
-  if (modelCache.has(connectionName + '_RepoAgent')) {
-    console.log(`Using cached RepoAgent model for: ${connectionName}`);
-    return modelCache.get(connectionName + '_RepoAgent');
+  const cacheKey = connectionName + '_RepoAgent';
+
+  // Prefer an already compiled model on this connection
+  if (tenantConnection.models && tenantConnection.models.RepoAgent) {
+    const existingModel = tenantConnection.model('RepoAgent');
+    modelCache.set(cacheKey, existingModel);
+    console.log(`Using existing RepoAgent model for: ${connectionName}`);
+    return existingModel;
   }
-  
+
+  // Check cache
+  if (modelCache.has(cacheKey)) {
+    console.log(`Using cached RepoAgent model for: ${connectionName}`);
+    return modelCache.get(cacheKey);
+  }
+
   console.log(`Creating new RepoAgent model for: ${connectionName}`);
   
   const repoAgentSchema = new mongoose.Schema({
@@ -593,10 +601,19 @@ const getRepoAgentModel = (tenantConnection) => {
     }
   });
 
-  // Create model and cache it
-  const model = tenantConnection.model('RepoAgent', repoAgentSchema);
-  modelCache.set(connectionName + '_RepoAgent', model);
-  
+  // Create model and cache it (guard against race conditions)
+  let model;
+  try {
+    model = tenantConnection.model('RepoAgent', repoAgentSchema);
+  } catch (err) {
+    if (err && err.name === 'OverwriteModelError') {
+      model = tenantConnection.model('RepoAgent');
+    } else {
+      throw err;
+    }
+  }
+  modelCache.set(cacheKey, model);
+
   console.log(`RepoAgent model cached for: ${connectionName}`);
   return model;
 };
@@ -607,7 +624,7 @@ router.get('/staff', async (req, res) => {
     const { page = 1, limit = 10, search = '' } = req.query;
     const skip = (page - 1) * limit;
     
-    console.log('Fetching office staff for user:', req.user._id);
+    console.log('Fetching office staff for user:', req.user.userId);
     console.log('User tenant ID:', req.user.tenantId);
     
     // Get tenant information
@@ -746,7 +763,7 @@ router.post('/staff', async (req, res) => {
       panCardPhoto: req.body.panCardPhoto || '',
       draCertificate: req.body.draCertificate || '',
       profilePhoto: req.body.profilePhoto || '',
-      createdBy: req.user._id.toString(),
+      createdBy: req.user.userId.toString(),
       status: 'active',
       otpVerified: false
     });
@@ -862,13 +879,37 @@ router.put('/staff/:id/status', async (req, res) => {
   }
 });
 
+// Delete office staff by id
+router.delete('/staff/:id', async (req, res) => {
+  try {
+    const tenant = await Tenant.findById(req.user.tenantId);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+    const tenantConnection = await getTenantDB(tenant.name);
+    const OfficeStaff = getOfficeStaffModel(tenantConnection);
+
+    const staff = await OfficeStaff.findById(req.params.id);
+    if (!staff) {
+      return res.status(404).json({ success: false, message: 'Staff not found' });
+    }
+
+    await OfficeStaff.deleteOne({ _id: staff._id });
+
+    return res.json({ success: true, message: 'Office staff deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting office staff:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete office staff' });
+  }
+});
+
 // Repo Agent Management
 router.get('/agents', async (req, res) => {
   try {
     const { page = 1, limit = 10, search = '' } = req.query;
     const skip = (page - 1) * limit;
     
-    console.log('Fetching repo agents for user:', req.user._id);
+    console.log('Fetching repo agents for user:', req.user.userId);
     console.log('User tenant ID:', req.user.tenantId);
     
     // Get tenant information
@@ -1076,6 +1117,30 @@ router.put('/agents/:id/status', async (req, res) => {
   }
 });
 
+// Delete repo agent by id
+router.delete('/agents/:id', async (req, res) => {
+  try {
+    const tenant = await Tenant.findById(req.user.tenantId);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+    const tenantConnection = await getTenantDB(tenant.name);
+    const RepoAgent = getRepoAgentModel(tenantConnection);
+
+    const agent = await RepoAgent.findById(req.params.id);
+    if (!agent) {
+      return res.status(404).json({ success: false, message: 'Agent not found' });
+    }
+
+    await RepoAgent.deleteOne({ _id: agent._id });
+
+    return res.json({ success: true, message: 'Repo agent deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting repo agent:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete repo agent' });
+  }
+});
+
 // Create new repo agent
 router.post('/agents', async (req, res) => {
   try {
@@ -1150,7 +1215,7 @@ router.post('/agents', async (req, res) => {
       draCertificate: req.body.draCertificate || '',
       profilePhoto: req.body.profilePhoto || '',
       role: 'Repo Agent',
-      createdBy: req.user._id.toString(),
+      createdBy: req.user.userId.toString(),
       status: 'active',
       otpVerified: false
     });

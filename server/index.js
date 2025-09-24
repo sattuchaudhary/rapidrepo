@@ -35,20 +35,34 @@ app.use(cors({
 // Trust proxy for rate limiting
 app.set('trust proxy', 1);
 
-// Rate limiting
-const limiter = rateLimit({
+// Rate limiting - more generous for data operations
+const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  max: 200, // Increased limit for general API usage
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
 });
-app.use(limiter);
+
+// More restrictive rate limiting for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // Strict limit for auth
+  message: 'Too many authentication attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply general rate limiting to all routes
+app.use(generalLimiter);
 
 // Body parser middleware
 app.use(express.json({ limit: '40mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/unified-auth', unifiedAuthRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/unified-auth', authLimiter, unifiedAuthRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/tenants', tenantRoutes);
@@ -56,6 +70,7 @@ app.use('/api/tenant/clients', require('./routes/client'));
 app.use('/api/tenant/users', require('./routes/tenantUsers'));
 app.use('/api/tenant/mobile', require('./routes/mobileUpload'));
 app.use('/api/tenant/data', require('./routes/fileManagement'));
+app.use('/api/bulk-download', require('./routes/bulkDownload'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

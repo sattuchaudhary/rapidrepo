@@ -179,7 +179,7 @@ const login = async (req, res) => {
 // Get current user profile
 const getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).populate('tenantId');
+    const user = await User.findById(req.user.userId).populate('tenantId');
     
     res.json({
       success: true,
@@ -215,7 +215,7 @@ const updateProfile = async (req, res) => {
   try {
     const { firstName, lastName, phone, address } = req.body;
     
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user.userId);
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -264,7 +264,7 @@ const changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
 
-    const user = await User.findById(req.user._id).select('+password');
+    const user = await User.findById(req.user.userId).select('+password');
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -303,7 +303,7 @@ const changePassword = async (req, res) => {
 const logout = async (req, res) => {
   try {
     // Update last login (optional - for tracking)
-    await User.findByIdAndUpdate(req.user._id, {
+    await User.findByIdAndUpdate(req.user.userId, {
       lastLogin: new Date()
     });
 

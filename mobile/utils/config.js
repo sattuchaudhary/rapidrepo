@@ -7,16 +7,24 @@ export const getBaseURL = () => {
 
   if (Platform.OS === 'web') return 'http://localhost:5000';
 
+  // Try to get the host from Expo's debugger host
   const hostUri =
     Constants?.expoConfig?.hostUri ||
     Constants?.manifest2?.extra?.expoGo?.debuggerHost ||
     Constants?.manifest?.debuggerHost || '';
-  const host = String(hostUri).split(':')[0];
-  const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
-  if (isIp) return `http://${host}:5000`;
+  
+  if (hostUri) {
+    const host = String(hostUri).split(':')[0];
+    const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
+    if (isIp) return `http://${host}:5000`;
+  }
 
-  if (Platform.OS === 'android') return 'http://192.168.1.34:5000';
-  return 'http://192.168.1.34:5000';
+  // Fallback to your current network IP
+  // Update this IP if your network changes
+  const fallbackIP = '192.168.1.19';
+  
+  if (Platform.OS === 'android') return `http://${fallbackIP}:5000`;
+  return `http://${fallbackIP}:5000`;
 };
 
 

@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const Tenant = require('../models/Tenant');
 const { getTenantDB } = require('../config/database');
+const fileManagementRouter = require('./fileManagement');
 
 // Auth middleware
 router.use(authenticateToken, requireAdmin);
@@ -380,7 +381,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
           vehicleType: vehicleType,
           fileName: req.file.originalname,
           uploadDate: new Date(),
-          uploadedBy: req.user._id,
+          uploadedBy: req.user.userId,
           raw: row
         });
       }
@@ -394,7 +395,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       bankId: bankId || '',
       vehicleType: vehicleType,
       fileName: req.file.originalname,
-      uploadedBy: req.user._id,
+      uploadedBy: req.user.userId,
       totalRecords: rows.length,
       processedRecords: processedCount,
       failedRecords: failedCount,
@@ -417,6 +418,15 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       const result = await mainCollection.insertMany(processedData);
       console.log(`Inserted ${result.insertedCount} records into ${collectionName}`);
     }
+
+    // Attempt to (asynchronously) rebuild the offline snapshot for instant mobile download
+    try {
+      const tenantName = tenant.name;
+      if (fileManagementRouter && typeof fileManagementRouter.buildTenantSnapshot === 'function') {
+        // Fire and forget
+        fileManagementRouter.buildTenantSnapshot(tenantName).catch(() => {});
+      }
+    } catch (_) {}
 
     res.json({
       success: true,
