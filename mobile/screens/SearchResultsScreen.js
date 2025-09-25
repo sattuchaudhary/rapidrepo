@@ -97,8 +97,8 @@ export default function SearchResultsScreen({ route, navigation }) {
       }
       setError('');
       
-      // In OFFLINE mode, always prefer full SQLite dataset over any preloaded subset
-      const useLocalData = offline || (Array.isArray(offlineData) && offlineData.length > 0);
+      // Only use local dataset in explicit OFFLINE mode; online always fetches server
+      const useLocalData = offline;
       if (useLocalData) {
         // LOCAL MODE (offline or local dataset available)
         if (!offline && offlineData && Array.isArray(offlineData) && offlineData.length > 0) {
@@ -301,8 +301,8 @@ export default function SearchResultsScreen({ route, navigation }) {
       }, 100);
       
       // Prepare data source for future searches
-      if (!offline) {
-        // Only keep local copy when online; in offline mode we want to use full SQLite dataset
+      if (offline) {
+        // In offline mode we can use a preloaded subset; otherwise rely on full SQLite dataset
         setOfflineData(preloadedData);
         buildLocalSearchIndex(preloadedData);
       }
@@ -350,22 +350,15 @@ export default function SearchResultsScreen({ route, navigation }) {
   const renderListItem = useCallback(({ item, index }) => (
     <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={styles.listItem} onPress={async () => {
       try {
-        if (offline) {
-          // OFFLINE MODE: Use local data directly
-          setDetail(item);
-          setDetailOpen(true);
-        } else {
-          // ONLINE MODE: Fetch from server
-          const token = await SecureStore.getItemAsync('token');
-          const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          setDetail(res.data?.data || null);
-          setDetailOpen(true);
+        const token = await SecureStore.getItemAsync('token');
+        const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setDetail(res.data?.data || null);
+        setDetailOpen(true);
 
-          // Log search click to per-tenant history
-          await logSearchClick(item, regSuffixInput || chassisInput || '');
-        }
+        // Log search click to per-tenant history
+        await logSearchClick(item, regSuffixInput || chassisInput || '');
       } catch (error) {
         console.error('Error fetching vehicle details:', error);
         // Fallback to local data if server fails
@@ -375,7 +368,7 @@ export default function SearchResultsScreen({ route, navigation }) {
     }}>
       <Text numberOfLines={1} style={styles.listTitle}>{item.regNo || ''}</Text>
     </TouchableOpacity>
-  ), [regSuffixInput, chassisInput, offline, logSearchClick]);
+  ), [regSuffixInput, chassisInput, logSearchClick]);
 
   // Trigger registration suffix search when exactly 4 digits
   useEffect(() => {
@@ -426,7 +419,7 @@ export default function SearchResultsScreen({ route, navigation }) {
   }, [chassisInput, fromDashboard, preloadedData, hasUserSearched]);
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top }] }>
+    <SafeAreaView style={[styles.container, {  }] }>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       <View style={styles.headerBar}>
         <TextInput
@@ -461,22 +454,15 @@ export default function SearchResultsScreen({ route, navigation }) {
               {azColumns.left.map((item, index) => (
                 <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={styles.listItem} onPress={async () => {
                   try {
-                    if (offline) {
-                      // OFFLINE MODE: Use local data directly
-                      setDetail(item);
-                      setDetailOpen(true);
-                    } else {
-                      // ONLINE MODE: Fetch from server
-                      const token = await SecureStore.getItemAsync('token');
-                      const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
-                        headers: { Authorization: `Bearer ${token}` }
-                      });
-                      setDetail(res.data?.data || null);
-                      setDetailOpen(true);
+                    const token = await SecureStore.getItemAsync('token');
+                    const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
+                      headers: { Authorization: `Bearer ${token}` }
+                    });
+                    setDetail(res.data?.data || null);
+                    setDetailOpen(true);
 
-                      // Log search click to per-tenant history
-                      await logSearchClick(item, regSuffixInput || chassisInput || '');
-                    }
+                    // Log search click to per-tenant history
+                    await logSearchClick(item, regSuffixInput || chassisInput || '');
                   } catch (error) {
                     console.error('Error fetching vehicle details (A-Z):', error);
                     // Fallback to local data if server fails
@@ -492,22 +478,15 @@ export default function SearchResultsScreen({ route, navigation }) {
               {azColumns.right.map((item, index) => (
                 <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={styles.listItem} onPress={async () => {
                   try {
-                    if (offline) {
-                      // OFFLINE MODE: Use local data directly
-                      setDetail(item);
-                      setDetailOpen(true);
-                    } else {
-                      // ONLINE MODE: Fetch from server
-                      const token = await SecureStore.getItemAsync('token');
-                      const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
-                        headers: { Authorization: `Bearer ${token}` }
-                      });
-                      setDetail(res.data?.data || null);
-                      setDetailOpen(true);
+                    const token = await SecureStore.getItemAsync('token');
+                    const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
+                      headers: { Authorization: `Bearer ${token}` }
+                    });
+                    setDetail(res.data?.data || null);
+                    setDetailOpen(true);
 
-                      // Log search click to per-tenant history
-                      await logSearchClick(item, regSuffixInput || chassisInput || '');
-                    }
+                    // Log search click to per-tenant history
+                    await logSearchClick(item, regSuffixInput || chassisInput || '');
                   } catch (error) {
                     console.error('Error fetching vehicle details (A-Z):', error);
                     // Fallback to local data if server fails

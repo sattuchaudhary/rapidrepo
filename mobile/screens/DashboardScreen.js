@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, TextInput, FlatList, Image, Modal, Alert } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, TextInput, FlatList, Image, Modal, Alert, Animated } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 
@@ -597,6 +598,10 @@ export default function DashboardScreen({ navigation }) {
   const [searchValue, setSearchValue] = useState('');
   const [chassisValue, setChassisValue] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerTranslate = useState(new Animated.Value(-260))[0];
+  const overlayOpacity = useState(new Animated.Value(0))[0];
+  const contentFade = useState(new Animated.Value(0))[0];
+  const contentSlide = useState(new Animated.Value(16))[0];
   const [localCount, setLocalCount] = useState(0);
   const [progressiveResults, setProgressiveResults] = useState([]);
   const [predictions, setPredictions] = useState([]);
@@ -792,32 +797,17 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
+  // Disable instant/progressive search while typing to improve performance
   useEffect(() => {
     const regValue = String(searchValue || '').trim();
     const chassisVal = String(chassisValue || '').trim();
-    
-    if (!regValue && !chassisVal) {
-      setProgressiveResults([]);
-      setPredictions([]);
-      return;
-    }
-    
-    // 4-digit registration search - Navigate to SearchResultsScreen
+
     if (/^\d{4}$/.test(regValue)) {
       runInstantSearch(regValue, 'reg');
-    }
-    // Chassis search (3+ characters) - Navigate to SearchResultsScreen
-    else if (chassisVal.length >= 3) {
+    } else if (chassisVal.length >= 3) {
       runInstantSearch(chassisVal, 'chassis');
     }
-    // Progressive search for 2+ digits (local only)
-    else if (localCount > 0 && regValue.length >= 2) {
-      runProgressiveSearch(regValue);
-    } else {
-      setProgressiveResults([]);
-      setPredictions([]);
-    }
-  }, [searchValue, chassisValue, localCount]);
+  }, [searchValue, chassisValue]);
 
   const incrementalSync = async () => {
     setDownloading(true);
@@ -1011,8 +1001,27 @@ export default function DashboardScreen({ navigation }) {
     })();
   }, [localCount]);
 
+  useEffect(() => {
+    if (drawerOpen) {
+      drawerTranslate.setValue(-260);
+      overlayOpacity.setValue(0);
+      Animated.parallel([
+        Animated.timing(drawerTranslate, { toValue: 0, duration: 250, useNativeDriver: true }),
+        Animated.timing(overlayOpacity, { toValue: 1, duration: 250, useNativeDriver: true })
+      ]).start();
+    }
+  }, [drawerOpen]);
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(contentFade, { toValue: 1, duration: 450, useNativeDriver: true }),
+      Animated.timing(contentSlide, { toValue: 0, duration: 450, useNativeDriver: true })
+    ]).start();
+  }, []);
+
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <SafeAreaView style={[styles.container, { paddingBottom: insets.bottom }]}>
+      <LinearGradient colors={["#0b1220", "#0b2a6f", "#0b1220"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFillObject} />
       {/* Top bar */}
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => setDrawerOpen(true)} style={styles.menuBtn}>
@@ -1024,58 +1033,72 @@ export default function DashboardScreen({ navigation }) {
         <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
           <Text style={styles.link}>👤</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.navigate('OfflineData')} style={{ marginLeft: 12 }}>
-          <Text style={styles.link}>📥</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Brand + search */}
-      <View style={styles.brandBlock}>
-        <Image source={require('../assets/icon.png')} style={styles.logoImage} resizeMode="cover" />
+      <Animated.View style={[styles.brandBlock, { opacity: contentFade, transform: [{ translateY: contentSlide }] }]}>
+        <View style={styles.brandBadgeWrap}>
+          <View style={styles.brandBadgeOuter}>
+            <View style={styles.brandBadgeInner}>
+              <Text style={{ fontSize: 36 }}>🚗</Text>
+            </View>
+          </View>
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusBadgeText}>{isOfflineMode ? 'Offline' : 'Online'}</Text>
+          </View>
+        </View>
         <Text style={styles.orgName}>{agent?.tenantName || 'Your Organization'}</Text>
         <View style={styles.searchRow}>
-          <TextInput
-            style={[styles.input, { flex: 0.5 }]}
-            value={chassisValue}
-            onChangeText={(t) => {
-              const clean = String(t || '').toUpperCase().slice(0, 20);
-              setChassisValue(clean);
-              // Trigger search when chassis number is 3+ characters
-              if (clean.length >= 3) {
-                runInstantSearch(clean, 'chassis');
-              } else {
-                setProgressiveResults([]);
-                setPredictions([]);
-              }
-            }}
-            placeholder="Chassis Number"
-            autoCapitalize="characters"
-          />
-          <TextInput
-            style={[styles.input, { flex: 0.5 }]}
-            value={searchValue}
-            onChangeText={(t) => {
-              const digits = String(t || '').replace(/\D/g, '').slice(0, 4);
-              setSearchValue(digits);
-              // Trigger search based on input length
-              if (digits.length === 4) {
-                runInstantSearch(digits, 'reg');
-              } else if (digits.length >= 2) {
-                runProgressiveSearch(digits);
-              } else {
-                setProgressiveResults([]);
-                setPredictions([]);
-              }
-            }}
-            placeholder="4-Digit Reg (1234)"
-            keyboardType="numeric"
-            maxLength={4}
-          />
+          <View style={[styles.inputWrap, { flex: 0.5 }]}>
+            <TextInput
+              style={[styles.input, { paddingRight: 36 }]}
+              value={chassisValue}
+              onChangeText={(t) => {
+                const clean = String(t || '').toUpperCase().slice(0, 20);
+                setChassisValue(clean);
+              }}
+              placeholder="Chassis Number"
+              autoCapitalize="characters"
+            />
+            <Text style={styles.inputIcon}>🔍</Text>
+          </View>
+          <View style={[styles.inputWrap, { flex: 0.5 }]}>
+            <TextInput
+              style={[styles.input, { paddingRight: 36 }]}
+              value={searchValue}
+              onChangeText={(t) => {
+                const digits = String(t || '').replace(/\D/g, '').slice(0, 4);
+                setSearchValue(digits);
+              }}
+              placeholder="4-Digit Reg"
+              keyboardType="numeric"
+              maxLength={4}
+            />
+            <Text style={styles.inputIcon}>🔍</Text>
+          </View>
         </View>
         <Text style={styles.searchHint}>
           Enter chassis number (3+ chars) or 4-digit registration number
         </Text>
-      </View>
+      </Animated.View>
+
+      {/* Stats cards */}
+      <Animated.View style={[styles.statsGrid, { opacity: contentFade, transform: [{ translateY: contentSlide }] }]}>
+        <View style={styles.statCard}>
+          <View>
+            <Text style={styles.statLabel}>Local Records</Text>
+            <Text style={styles.statValue}>{String(localCount || 0)}</Text>
+          </View>
+          <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>🗃️</Text></View>
+        </View>
+        <View style={styles.statCard}>
+          <View>
+            <Text style={styles.statLabel}>Sync Status</Text>
+            <Text style={styles.statValue}>{isOfflineMode ? 'Offline' : 'Online'}</Text>
+          </View>
+          <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>{isOfflineMode ? '📴' : '📶'}</Text></View>
+        </View>
+      </Animated.View>
 
       {/* Progress Bar removed to simplify dashboard */}
       {downloading && (
@@ -1084,69 +1107,36 @@ export default function DashboardScreen({ navigation }) {
 
       {/* Info cards removed to keep dashboard minimal */}
 
-      {/* Progressive Results - Show while typing */}
-      {progressiveResults.length > 0 && searchValue.length >= 2 && searchValue.length < 4 && (
-        <View style={styles.progressiveContainer}>
-          <Text style={styles.progressiveTitle}>
-            Found {progressiveResults.length} vehicles starting with "{searchValue}"
-          </Text>
-          <FlatList
-            data={progressiveResults.slice(0, 6)}
-            numColumns={2}
-            keyExtractor={(item, index) => String(item.id || item._id || item.regNo || item.chassisNo || index)}
-            contentContainerStyle={{ gap: 8 }}
-            columnWrapperStyle={{ gap: 8 }}
-            renderItem={({ item }) => (
-              <View style={[styles.tile, { flex: 1, backgroundColor: '#E8F4FD' }]}>
-                <View>
-                  <Text style={styles.tileTitle}>{item.regNo || '—'}</Text>
-                  <Text style={styles.muted}>Chassis: {item.chassisNo || '—'}</Text>
-                  <Text style={styles.muted}>Loan: {item.loanNo || '—'}</Text>
-                </View>
-              </View>
-            )}
-          />
-        </View>
-      )}
+      
 
-      {/* Predictions - Show next likely digits */}
-      {predictions.length > 0 && searchValue.length >= 2 && searchValue.length < 4 && (
-        <View style={styles.predictionsContainer}>
-          <Text style={styles.predictionsTitle}>Next likely digits:</Text>
-          <View style={styles.predictionsRow}>
-            {predictions.map((pred, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.predictionButton}
-                onPress={() => setSearchValue(searchValue + pred.digit)}
-              >
-                <Text style={styles.predictionDigit}>{pred.digit}</Text>
-                <Text style={styles.predictionCount}>({pred.count})</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      )}
-
-      {/* Quick tiles */}
-      <View style={styles.grid}>
-        <TouchableOpacity style={styles.tile}>
-          <Text style={styles.tileTitle}>Holds</Text>
-          <Text style={styles.tileIcon}>⏸️</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.tile}>
-          <Text style={styles.tileTitle}>In Yard</Text>
-          <Text style={styles.tileIcon}>📦</Text>
-        </TouchableOpacity>
-      </View>
-      <TouchableOpacity style={[styles.tile, { width: '100%' }]}>
-        <Text style={styles.tileTitle}>Release</Text>
-        <Text style={styles.tileIcon}>↩️</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={[styles.tile, { width: '100%', marginTop: 10 }]} onPress={() => navigation.navigate('JSONExport')}>
-        <Text style={styles.tileTitle}>Export JSON (Offline Dump)</Text>
-        <Text style={styles.tileIcon}>🗂️</Text>
-      </TouchableOpacity>
+      {/* Quick Actions */}
+      <Animated.View style={[styles.grid, { opacity: contentFade, transform: [{ translateY: contentSlide }] }]}>
+        <LinearGradient colors={["#F97316", "#EF4444"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tileGradient}>
+          <TouchableOpacity style={styles.tileContent}>
+            <View>
+              <Text style={styles.tileTitle}>Holds</Text>
+              <Text style={styles.tileSubtitle}>Manage holds</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.tileIcon}>⏸️</Text>
+              <Text style={styles.chev}>›</Text>
+            </View>
+          </TouchableOpacity>
+        </LinearGradient>
+        <LinearGradient colors={["#A855F7", "#4F46E5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tileGradient}>
+          <TouchableOpacity style={styles.tileContent}>
+            <View>
+              <Text style={styles.tileTitle}>In Yard</Text>
+              <Text style={styles.tileSubtitle}>Yard inventory</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.tileIcon}>📦</Text>
+              <Text style={styles.chev}>›</Text>
+            </View>
+          </TouchableOpacity>
+        </LinearGradient>
+      </Animated.View>
+      
 
       {/* Bottom bar with offline/online toggle and sync */}
       <View style={styles.bottomBar}>
@@ -1155,52 +1145,66 @@ export default function DashboardScreen({ navigation }) {
             style={[styles.modeBtn, isOfflineMode && styles.modeBtnActive]}
             onPress={() => setIsOfflineMode(true)}
           >
-            <Text style={[styles.modeBtnText, isOfflineMode && styles.modeBtnTextActive]}>Offline</Text>
+            <Text style={[styles.modeBtnText, isOfflineMode && styles.modeBtnTextActive]}>Offline Mode</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.modeBtn, !isOfflineMode && styles.modeBtnActive]}
             onPress={() => setIsOfflineMode(false)}
           >
-            <Text style={[styles.modeBtnText, !isOfflineMode && styles.modeBtnTextActive]}>Online</Text>
+            <Text style={[styles.modeBtnText, !isOfflineMode && styles.modeBtnTextActive]}>Online Mode</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.downloadButtonsContainer}>
-          <TouchableOpacity
-            style={[styles.downloadButton, styles.incrementalButton, downloading && { opacity: 0.6 }]}
-            onPress={syncViaJsonDump}
-            disabled={downloading}
-          >
-            <Text style={styles.bottomButtonText}>{downloading ? 'Syncing...' : 'Sync Data'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.downloadButton, styles.refreshButton]}
-            onPress={refreshLocalCount}
-          >
-            <Text style={styles.bottomButtonText}>Refresh</Text>
-          </TouchableOpacity>
+          <LinearGradient colors={["#10B981", "#059669"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.actionBtnGradient, downloading && { opacity: 0.7 }]}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={syncViaJsonDump}
+              disabled={downloading}
+            >
+              <Text style={styles.bottomButtonText}>{downloading ? '⏳ Syncing...' : '✅ Sync Data'}</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+          <LinearGradient colors={["#3B82F6", "#4F46E5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.actionBtnGradient}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={refreshLocalCount}
+            >
+              <Text style={styles.bottomButtonText}>🔄 Refresh</Text>
+            </TouchableOpacity>
+          </LinearGradient>
         </View>
       </View>
 
       {/* Simple left drawer */}
-      <Modal visible={drawerOpen} transparent animationType="slide" onRequestClose={() => setDrawerOpen(false)}>
-        <View style={styles.drawerOverlay}>
-          <View style={styles.drawer}>
+      <Modal visible={drawerOpen} transparent animationType="none" onRequestClose={() => setDrawerOpen(false)}>
+        <Animated.View style={[styles.drawerOverlay, { opacity: overlayOpacity }] }>
+          <Animated.View style={[styles.drawer, { transform: [{ translateX: drawerTranslate }] }] }>
+            <View style={styles.drawerHeader}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{String((agent?.name || 'A')[0] || 'A').toUpperCase()}</Text>
+              </View>
+              <View style={{ marginLeft: 12 }}>
+                <Text style={styles.drawerAgentName}>{agent?.name || 'Agent'}</Text>
+                <Text style={styles.drawerAgentSub}>{agent?.tenantName || 'Organization'}</Text>
+              </View>
+            </View>
             <Text style={styles.drawerTitle}>Menu</Text>
             <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); }}>
-              <Text style={styles.drawerItemText}>Dashboard</Text>
+              <Text style={styles.drawerItemText}>🏠  Dashboard</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); navigation.navigate('IDCard'); }}>
-              <Text style={styles.drawerItemText}>My ID Card</Text>
+              <Text style={styles.drawerItemText}>🆔  My ID Card</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); navigation.navigate('Sync'); }}>
-              <Text style={styles.drawerItemText}>Data Sync</Text>
+              <Text style={styles.drawerItemText}>🔄  Data Sync</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.drawerItem} onPress={logout}>
-              <Text style={styles.drawerItemText}>Logout</Text>
+            <View style={styles.drawerDivider} />
+            <TouchableOpacity style={[styles.drawerItem, { backgroundColor: '#FEF2F2' }]} onPress={logout}>
+              <Text style={[styles.drawerItemText, { color: '#B91C1C' }]}>🚪  Logout</Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setDrawerOpen(false)} />
-        </View>
+        </Animated.View>
       </Modal>
 
     </SafeAreaView>
@@ -1209,16 +1213,22 @@ export default function DashboardScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#10121A', paddingHorizontal: 10 },
   topBar: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
-  menuBtn: { paddingHorizontal: 6, paddingVertical: 4 },
-  menuIcon: { color: '#fff', fontSize: 22, fontWeight: '900' },
+  menuBtn: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 8 },
+  menuIcon: { color: '#fff', fontSize: 18, fontWeight: '900' },
   titleWrap: { flex: 1, alignItems: 'center' },
-  appTitle: { color: '#fff', fontSize: 24, fontWeight: '800' },
+  appTitle: { color: '#fff', fontSize: 24, fontWeight: '900', letterSpacing: 1 },
   link: { color: '#9ecbff', fontSize: 14 },
-  brandBlock: { alignItems: 'center', marginBottom: 10 },
-  logoImage: { width: 120, height: 120, borderRadius: 30, marginTop: 2 },
-  orgName: { color: '#fff', fontSize: 20, fontWeight: '700', marginTop: 12 },
+  brandBlock: { alignItems: 'center', marginBottom: 14 },
+  brandBadgeWrap: { width: 112, height: 112, marginTop: 2 },
+  brandBadgeOuter: { flex: 1, borderRadius: 28, padding: 4, backgroundColor: 'rgba(59,130,246,0.5)' },
+  brandBadgeInner: { flex: 1, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.95)', alignItems: 'center', justifyContent: 'center' },
+  statusBadge: { position: 'absolute', right: -6, bottom: -6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: '#10B981', borderWidth: 3, borderColor: '#0b1220' },
+  statusBadgeText: { color: '#fff', fontWeight: '800', fontSize: 10, textTransform: 'uppercase' },
+  orgName: { color: '#fff', fontSize: 22, fontWeight: '900', marginTop: 10 },
   searchRow: { flexDirection: 'row', gap: 8, width: '100%', marginTop: 12 },
-  input: { backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  inputWrap: { position: 'relative' },
+  input: { backgroundColor: '#ffffff', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, borderWidth: 1, borderColor: '#E2E8F0' },
+  inputIcon: { position: 'absolute', right: 10, top: '50%', marginTop: -10 },
   searchHint: {
     color: '#666',
     fontSize: 12,
@@ -1226,6 +1236,11 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontStyle: 'italic'
   },
+  statsGrid: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  statCard: { flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  statLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginBottom: 4 },
+  statValue: { color: '#fff', fontSize: 20, fontWeight: '900' },
+  statIconBox: { width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(59,130,246,0.2)', alignItems: 'center', justifyContent: 'center' },
   infoCard: { 
     backgroundColor: '#fff', 
     borderRadius: 16, 
@@ -1338,17 +1353,12 @@ const styles = StyleSheet.create({
     opacity: 0.8
   },
   grid: { flexDirection: 'row', gap: 12, marginBottom: 12 },
-  tile: { 
-    flex: 1, 
-    backgroundColor: '#fff', 
-    borderRadius: 16, 
-    padding: 18, 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    flexDirection: 'row' 
-  },
-  tileTitle: { color: '#111', fontSize: 18, fontWeight: '700' },
-  tileIcon: { fontSize: 22 },
+  tileGradient: { flex: 1, borderRadius: 18 },
+  tileContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 18, paddingHorizontal: 18 },
+  tileTitle: { color: '#fff', fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
+  tileSubtitle: { color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 2 },
+  tileIcon: { fontSize: 24, color: '#fff', marginRight: 6 },
+  chev: { color: '#fff', fontSize: 26, marginLeft: 6 },
   muted: { color: '#666', fontSize: 12 },
   bottomBar: { 
     position: 'absolute', 
@@ -1359,53 +1369,42 @@ const styles = StyleSheet.create({
     alignItems: 'center', 
     gap: 12 
   },
-  modeGroup: { flex: 1, flexDirection: 'row', gap: 8 },
+  modeGroup: { flex: 1, flexDirection: 'row', gap: 12 },
   modeBtn: {
     flex: 1,
-    backgroundColor: '#1F2433',
-    paddingVertical: 12,
-    borderRadius: 12,
+    backgroundColor: '#111827',
+    paddingVertical: 16,
+    borderRadius: 18,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#2D3748'
+    borderWidth: 0
   },
   modeBtnActive: {
-    backgroundColor: '#FFD548',
-    borderColor: '#FFD548'
+    backgroundColor: '#FACC15'
   },
   modeBtnText: {
-    color: '#9CA3AF',
-    fontWeight: '700'
+    color: '#FFFFFF',
+    fontWeight: '900'
   },
   modeBtnTextActive: {
-    color: '#111111'
+    color: '#111827'
   },
   downloadButtonsContainer: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 12,
     flex: 1
   },
-  downloadButton: { 
-    backgroundColor: '#222636', 
-    paddingVertical: 16, 
-    borderRadius: 28, 
-    alignItems: 'center', 
-    paddingHorizontal: 18,
-    flex: 1
-  },
-  incrementalButton: {
-    backgroundColor: '#10B981'
-  },
-  fullDownloadButton: {
-    backgroundColor: '#222636'
-  },
-  refreshButton: {
-    backgroundColor: '#6366F1'
-  },
-  bottomButtonText: { color: '#fff', fontWeight: '800', letterSpacing: 1 },
+  actionBtnGradient: { flex: 1, borderRadius: 24 },
+  actionBtn: { paddingVertical: 18, paddingHorizontal: 18, alignItems: 'center' },
+  bottomButtonText: { color: '#fff', fontWeight: '900', letterSpacing: 1 },
   drawerOverlay: { flex: 1, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.4)' },
-  drawer: { width: 260, backgroundColor: '#fff', paddingTop: 40, paddingHorizontal: 16 },
-  drawerTitle: { fontSize: 18, fontWeight: '800', marginBottom: 16 },
-  drawerItem: { paddingVertical: 12 },
-  drawerItemText: { fontSize: 16, color: '#111' }
+  drawer: { width: 280, backgroundColor: '#ffffff', paddingTop: 40, paddingHorizontal: 16, borderTopRightRadius: 16, borderBottomRightRadius: 16 },
+  drawerHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#E0E7FF', alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: '#3730A3', fontWeight: '800' },
+  drawerAgentName: { fontSize: 16, fontWeight: '800', color: '#111827' },
+  drawerAgentSub: { fontSize: 12, color: '#6B7280' },
+  drawerTitle: { fontSize: 12, fontWeight: '800', color: '#9CA3AF', marginBottom: 8, marginTop: 8 },
+  drawerItem: { paddingVertical: 12, paddingHorizontal: 8, borderRadius: 10 },
+  drawerDivider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 8 },
+  drawerItemText: { fontSize: 16, color: '#111827', fontWeight: '700' }
 });
