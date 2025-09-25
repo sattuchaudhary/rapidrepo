@@ -730,6 +730,11 @@ export default function DashboardScreen({ navigation }) {
           results = await searchByChassis(query);
         }
         if (results.length > 0) {
+          // Clear inputs and previews on successful navigate
+          setSearchValue('');
+          setChassisValue('');
+          setProgressiveResults([]);
+          setPredictions([]);
           navigation.navigate('SearchResults', { q: query, type, fromDashboard: true, instantSearch: true, preloadedData: results, offline: true });
         } else {
           Alert.alert('No Results', `No vehicles found in offline data for ${type === 'reg' ? 'registration ending in' : 'chassis containing'} ${query}`);
@@ -749,6 +754,11 @@ export default function DashboardScreen({ navigation }) {
       });
       const serverResults = res.data?.data || [];
       if (serverResults.length > 0) {
+        // Clear inputs and previews on successful navigate
+        setSearchValue('');
+        setChassisValue('');
+        setProgressiveResults([]);
+        setPredictions([]);
         navigation.navigate('SearchResults', { q: query, type, fromDashboard: true, instantSearch: true, preloadedData: serverResults, offline: false });
       } else {
         Alert.alert('No Results', `No vehicles found on server for ${type === 'reg' ? 'registration ending in' : 'chassis containing'} ${query}`);

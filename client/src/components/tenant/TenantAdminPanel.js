@@ -62,6 +62,7 @@ import FourWheelerData from './files/FourWheelerData';
 import CVData from './files/CVData';
 import VehicleDataDetails from './files/VehicleDataDetails';
 import UserStatistics from './UserStatistics';
+import Notifications from './Notifications';
 
 const TenantAdminPanel = () => {
   const navigate = useNavigate();
@@ -932,6 +933,9 @@ const TenantAdminPanel = () => {
             )}
             {location.pathname === '/tenant/user-stats' && (
               <UserStatistics />
+            )}
+            {location.pathname === '/tenant/notifications' && (
+              <Notifications />
             )}
           </Box>
         </Box>

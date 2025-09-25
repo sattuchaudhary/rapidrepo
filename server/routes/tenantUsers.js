@@ -989,16 +989,12 @@ router.get('/agents/stats/search', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Tenant not found' });
     }
 
-    // Global collection in main DB
-    const historySchema = new mongoose.Schema({}, { strict: false });
-    const SearchHistory = mongoose.model('SearchHistory', historySchema, 'search_histories');
+    // Use tenant-specific SearchHistory collection
+    const { getTenantDB } = require('../config/database');
+    const tenantConn = await getTenantDB(tenant.name);
+    const SearchHistory = require('../models/SearchHistory')(tenantConn);
 
-    const match = {
-      $or: [
-        { tenantId: tenant._id },
-        { tenantName: tenant.name }
-      ]
-    };
+    const match = {};
     if (dateStart || dateEnd) {
       match.createdAt = {};
       if (dateStart) match.createdAt.$gte = new Date(dateStart);
@@ -1015,34 +1011,118 @@ router.get('/agents/stats/search', async (req, res) => {
       { $sort: { searchedCount: -1 } }
     ]);
 
-    // Map agentId -> name by querying tenant RepoAgent collection
-    const { getTenantDB } = require('../config/database');
-    const tenantConn = await getTenantDB(tenant.name);
-    const { default: bcrypt } = require('bcryptjs'); // to avoid unused var lint in this file scope
-    const RepoAgent = tenantConn.model('RepoAgent') || tenantConn.model('RepoAgent', new mongoose.Schema({}, { strict: false }), 'repoagents');
+    // WhatsApp share usage aggregated per user
+    const ShareHistory = require('../models/ShareHistory')(tenantConn);
+    const shareMatch = { channel: 'whatsapp' };
+    if (dateStart || dateEnd) {
+      shareMatch.createdAt = {};
+      if (dateStart) shareMatch.createdAt.$gte = new Date(dateStart);
+      if (dateEnd) {
+        const end = new Date(dateEnd);
+        end.setHours(23, 59, 59, 999);
+        shareMatch.createdAt.$lte = end;
+      }
+    }
+    const shareGrouped = await ShareHistory.aggregate([
+      { $match: shareMatch },
+      { $group: { _id: '$userId', whatsappCount: { $sum: 1 } } }
+    ]);
+    const whatsappByUserId = new Map(shareGrouped.map(s => [String(s._id), s.whatsappCount]));
 
-    const agentIds = grouped.map(g => g._id).filter(Boolean);
-    let agentsById = {};
-    if (agentIds.length > 0) {
-      try {
-        const docs = await RepoAgent.find({ _id: { $in: agentIds } }, { name: 1 }).lean();
-        docs.forEach(d => { agentsById[String(d._id)] = d; });
-      } catch (_) {}
+    // Map userId -> { name, role } by querying tenant RepoAgent and OfficeStaff collections
+    const RepoAgent = getRepoAgentModel ? getRepoAgentModel(tenantConn) : (tenantConn.model('RepoAgent') || tenantConn.model('RepoAgent', new mongoose.Schema({}, { strict: false }), 'repoagents'));
+    const OfficeStaff = getOfficeStaffModel ? getOfficeStaffModel(tenantConn) : (tenantConn.model('OfficeStaff') || tenantConn.model('OfficeStaff', new mongoose.Schema({}, { strict: false }), 'officestaffs'));
+
+    // Fetch all users for this tenant
+    const [allAgents, allStaff] = await Promise.all([
+      RepoAgent.find({}, { name: 1 }).lean(),
+      OfficeStaff.find({}, { name: 1 }).lean()
+    ]);
+
+    const usersById = {};
+    for (const a of allAgents) {
+      usersById[String(a._id)] = { name: a.name || 'Unknown', role: 'Repo Agent' };
+    }
+    for (const s of allStaff) {
+      usersById[String(s._id)] = { name: s.name || 'Unknown', role: 'Office Staff' };
     }
 
-    const data = grouped.map((g, idx) => ({
-      id: idx + 1,
-      userId: g._id,
-      name: agentsById[String(g._id)]?.name || 'Unknown Agent',
-      vehiclesSearched: g.searchedCount,
+    // Build results for users who have searches
+    const existingIds = new Set();
+    const withSearchData = grouped.map((g) => {
+      const key = String(g._id);
+      existingIds.add(key);
+      const meta = usersById[key] || { name: 'Unknown User', role: 'Unknown' };
+      return {
+        id: key,
+        userId: g._id,
+        name: meta.name,
+        role: meta.role,
+        vehiclesSearched: g.searchedCount,
+        totalHours: 0,
+        loginCount: 0,
+        dataSyncs: 0,
+        whatsappCount: whatsappByUserId.get(key) || 0,
+        lastSearchedAt: g.lastAt || null
+      };
+    });
+
+    // Add users who only have WhatsApp shares but no searches
+    const indexById = new Map(withSearchData.map((row, idx) => [String(row.userId), idx]));
+    for (const s of shareGrouped) {
+      const key = String(s._id);
+      if (indexById.has(key)) {
+        const i = indexById.get(key);
+        withSearchData[i].whatsappCount = s.whatsappCount;
+      } else {
+        const meta = usersById[key] || { name: 'Unknown User', role: 'Unknown' };
+        withSearchData.push({
+          id: key,
+          userId: s._id,
+          name: meta.name,
+          role: meta.role,
+          vehiclesSearched: 0,
+          totalHours: 0,
+          loginCount: 0,
+          dataSyncs: 0,
+          whatsappCount: s.whatsappCount,
+          lastSearchedAt: null
+        });
+        existingIds.add(key);
+      }
+    }
+
+    // Add users with zero activity (no searches yet)
+    const zeroEntry = (uid, meta) => ({
+      id: String(uid),
+      userId: uid,
+      name: meta.name,
+      role: meta.role,
+      vehiclesSearched: 0,
       totalHours: 0,
       loginCount: 0,
       dataSyncs: 0,
       whatsappCount: 0,
-      lastSearchedAt: g.lastAt || null
-    }));
+      lastSearchedAt: null
+    });
 
-    return res.json({ success: true, data });
+    for (const a of allAgents) {
+      const key = String(a._id);
+      if (!existingIds.has(key)) {
+        withSearchData.push(zeroEntry(a._id, { name: a.name || 'Unknown', role: 'Repo Agent' }));
+      }
+    }
+    for (const s of allStaff) {
+      const key = String(s._id);
+      if (!existingIds.has(key)) {
+        withSearchData.push(zeroEntry(s._id, { name: s.name || 'Unknown', role: 'Office Staff' }));
+      }
+    }
+
+    // Sort by vehicles searched desc, then name asc
+    withSearchData.sort((a, b) => (b.vehiclesSearched - a.vehiclesSearched) || String(a.name).localeCompare(String(b.name)));
+
+    return res.json({ success: true, data: withSearchData });
   } catch (error) {
     console.error('Agent search stats error:', error);
     return res.status(500).json({ success: false, message: 'Failed to get user stats' });

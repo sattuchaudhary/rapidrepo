@@ -8,6 +8,7 @@ const { connectDB } = require('./config/database');
 const authRoutes = require('./routes/auth');
 const unifiedAuthRoutes = require('./routes/unifiedAuth');
 const adminRoutes = require('./routes/admin');
+const historyRoutes = require('./routes/history');
 const userRoutes = require('./routes/user');
 const tenantRoutes = require('./routes/tenant');
 
@@ -64,6 +65,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/unified-auth', authLimiter, unifiedAuthRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/history', historyRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/tenant/clients', require('./routes/client'));

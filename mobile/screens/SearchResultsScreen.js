@@ -28,6 +28,29 @@ export default function SearchResultsScreen({ route, navigation }) {
   const [searchIndex, setSearchIndex] = useState(new Map());
   const [azMode, setAzMode] = useState(true);
   const [hasUserSearched, setHasUserSearched] = useState(false);
+  const [suppressClearOnce, setSuppressClearOnce] = useState(false);
+
+  // Helper: log search click to server with robust error reporting
+  const logSearchClick = useCallback(async (vehicle, queryText) => {
+    try {
+      const token = await SecureStore.getItemAsync('token');
+      if (!token) {
+        console.warn('[history] No token found; skipping search-click logging');
+        return;
+      }
+      const payload = {
+        vehicleId: vehicle._id || vehicle.id,
+        vehicleType: (vehicle.vehicleType || 'other').toString().toLowerCase().includes('two') ? 'two_wheeler' : (vehicle.vehicleType || '').toString().toLowerCase().includes('four') ? 'four_wheeler' : (vehicle.vehicleType || '').toString().toLowerCase().includes('cv') ? 'cv' : 'other',
+        query: queryText || '',
+        metadata: { regNo: vehicle.regNo || '', chassisNo: vehicle.chassisNo || '' }
+      };
+      await axios.post(`${getBaseURL()}/api/history/search-click`, payload, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (err) {
+      const status = err?.response?.status;
+      const data = err?.response?.data;
+      console.warn('[history] search-click failed', { status, data, message: err?.message });
+    }
+  }, []);
 
 
   // Build search index for instant lookups (local in-screen)
@@ -57,7 +80,7 @@ export default function SearchResultsScreen({ route, navigation }) {
     setSearchIndex({ regIndex, chassisIndex });
   };
 
-  const runSearch = async (qVal, type, showLoading = false) => {
+  const runSearch = async (qVal, type, showLoading = false, clearInputsAfter = false) => {
     try {
       // Check cache first for INSTANT results (no loading state)
       const cacheKey = `${qVal}_${type}_${offline ? 'offline' : 'online'}`;
@@ -145,6 +168,12 @@ export default function SearchResultsScreen({ route, navigation }) {
           
           
           setResults(unique);
+          if (clearInputsAfter) {
+            setSuppressClearOnce(true);
+            setRegSuffixInput('');
+            setChassisInput('');
+            setTimeout(() => setSuppressClearOnce(false), 0);
+          }
           setError('');
           setLoading(false);
           return; // Exit early with offline results
@@ -169,6 +198,12 @@ export default function SearchResultsScreen({ route, navigation }) {
             }
           }
           setResults(rows || []);
+          if (clearInputsAfter) {
+            setSuppressClearOnce(true);
+            setRegSuffixInput('');
+            setChassisInput('');
+            setTimeout(() => setSuppressClearOnce(false), 0);
+          }
           setError(rows && rows.length > 0 ? '' : '');
           setLoading(false);
           return;
@@ -207,6 +242,12 @@ export default function SearchResultsScreen({ route, navigation }) {
             return newCache;
           });
           setResults(unique);
+          if (clearInputsAfter) {
+            setSuppressClearOnce(true);
+            setRegSuffixInput('');
+            setChassisInput('');
+            setTimeout(() => setSuppressClearOnce(false), 0);
+          }
         } catch (err) {
           setError(err.response?.data?.message || 'Search failed');
         }
@@ -254,6 +295,9 @@ export default function SearchResultsScreen({ route, navigation }) {
         setResults(preloadedData);
         setLoading(false);
         setError('');
+        // Clear header inputs so user can type next query immediately
+        setRegSuffixInput('');
+        setChassisInput('');
       }, 100);
       
       // Prepare data source for future searches
@@ -302,9 +346,9 @@ export default function SearchResultsScreen({ route, navigation }) {
     return () => task.cancel && task.cancel();
   }, []);
 
-  const keyExtractor = useCallback((item) => String(item._id), []);
-  const renderListItem = useCallback(({ item }) => (
-    <TouchableOpacity key={String(item._id)} style={styles.listItem} onPress={async () => {
+  const keyExtractor = useCallback((item, index) => String(item._id || item.id || item.regNo || item.chassisNo || index), []);
+  const renderListItem = useCallback(({ item, index }) => (
+    <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={styles.listItem} onPress={async () => {
       try {
         if (offline) {
           // OFFLINE MODE: Use local data directly
@@ -318,17 +362,9 @@ export default function SearchResultsScreen({ route, navigation }) {
           });
           setDetail(res.data?.data || null);
           setDetailOpen(true);
-          
-          // Log search history to server
-          try {
-            await axios.post(`${getBaseURL()}/api/tenant/data/search/history`, {
-              vehicleId: item._id,
-              regNo: item.regNo || '',
-              chassisNo: item.chassisNo || '',
-              query: regSuffixInput || chassisInput || '',
-              type: regSuffixInput ? 'reg' : 'chassis'
-            }, { headers: { Authorization: `Bearer ${token}` } });
-          } catch (_) {}
+
+          // Log search click to per-tenant history
+          await logSearchClick(item, regSuffixInput || chassisInput || '');
         }
       } catch (error) {
         console.error('Error fetching vehicle details:', error);
@@ -339,33 +375,41 @@ export default function SearchResultsScreen({ route, navigation }) {
     }}>
       <Text numberOfLines={1} style={styles.listTitle}>{item.regNo || ''}</Text>
     </TouchableOpacity>
-  ), [regSuffixInput, chassisInput, offline]);
+  ), [regSuffixInput, chassisInput, offline, logSearchClick]);
 
   // Trigger registration suffix search when exactly 4 digits
   useEffect(() => {
     const value = String(regSuffixInput || '').trim();
     
+    if (suppressClearOnce) return;
+
     // Skip if this is the initial load from dashboard and user hasn't searched yet
     if (fromDashboard && Array.isArray(preloadedData) && !hasUserSearched && value === String(q || '').trim()) {
       return;
     }
+    // Also skip initial empty state after arriving from dashboard
+    if (fromDashboard && !hasUserSearched && value === '') {
+      return;
+    }
     
     if (!/^\d{4}$/.test(value)) { 
-      setResults([]);
+      if (hasUserSearched) setResults([]);
       return; 
     }
     
     // Mark that user has started searching
     setHasUserSearched(true);
     
-    // INSTANT search - no loading state
-    runSearch(value, 'reg', false);
+    // INSTANT search - no loading state; clear inputs after showing results
+    runSearch(value, 'reg', false, true);
   }, [regSuffixInput, q, fromDashboard, preloadedData, hasUserSearched]);
 
   // Trigger chassis search when input length >= 3 (INSTANT for local data)
   useEffect(() => {
     const value = String(chassisInput || '').trim();
     
+    if (suppressClearOnce) return;
+
     // Skip if this is the initial load from dashboard and user hasn't searched yet
     if (fromDashboard && Array.isArray(preloadedData) && !hasUserSearched && value === '') {
       return;
@@ -374,10 +418,10 @@ export default function SearchResultsScreen({ route, navigation }) {
     if (value.length >= 3) {
       // Mark that user has started searching
       setHasUserSearched(true);
-      // INSTANT search for local data - no loading state
-      runSearch(value, 'chassis', false);
+      // INSTANT search for local data - no loading state; clear inputs after
+      runSearch(value, 'chassis', false, true);
     } else if (value.length === 0) {
-      setResults([]);
+      if (hasUserSearched) setResults([]);
     }
   }, [chassisInput, fromDashboard, preloadedData, hasUserSearched]);
 
@@ -414,8 +458,8 @@ export default function SearchResultsScreen({ route, navigation }) {
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 6 }}>
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <View style={{ flex: 1, gap: 8 }}>
-              {azColumns.left.map(item => (
-                <TouchableOpacity key={String(item._id)} style={styles.listItem} onPress={async () => {
+              {azColumns.left.map((item, index) => (
+                <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={styles.listItem} onPress={async () => {
                   try {
                     if (offline) {
                       // OFFLINE MODE: Use local data directly
@@ -429,6 +473,9 @@ export default function SearchResultsScreen({ route, navigation }) {
                       });
                       setDetail(res.data?.data || null);
                       setDetailOpen(true);
+
+                      // Log search click to per-tenant history
+                      await logSearchClick(item, regSuffixInput || chassisInput || '');
                     }
                   } catch (error) {
                     console.error('Error fetching vehicle details (A-Z):', error);
@@ -442,8 +489,8 @@ export default function SearchResultsScreen({ route, navigation }) {
               ))}
             </View>
             <View style={{ flex: 1, gap: 8 }}>
-              {azColumns.right.map(item => (
-                <TouchableOpacity key={String(item._id)} style={styles.listItem} onPress={async () => {
+              {azColumns.right.map((item, index) => (
+                <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={styles.listItem} onPress={async () => {
                   try {
                     if (offline) {
                       // OFFLINE MODE: Use local data directly
@@ -457,6 +504,9 @@ export default function SearchResultsScreen({ route, navigation }) {
                       });
                       setDetail(res.data?.data || null);
                       setDetailOpen(true);
+
+                      // Log search click to per-tenant history
+                      await logSearchClick(item, regSuffixInput || chassisInput || '');
                     }
                   } catch (error) {
                     console.error('Error fetching vehicle details (A-Z):', error);
@@ -590,11 +640,23 @@ export default function SearchResultsScreen({ route, navigation }) {
                     </Text>
                   </TouchableOpacity>
                   
-                  <TouchableOpacity style={styles.whatsBtn} onPress={() => {
-                    const text = `🚗 *Vehicle Details*\n\n🔢 *Registration:* ${detail.regNo}\n🔧 *Chassis:* ${detail.chassisNo}\n📄 *Loan:* ${detail.loanNo}\n🏦 *Bank:* ${detail.bank}\n👤 *Customer:* ${detail.customerName}\n📍 *Address:* ${detail.address}`;
-                    const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
-                    const { Linking } = require('react-native');
-                    Linking.openURL(url).catch(() => {});
+                  <TouchableOpacity style={styles.whatsBtn} onPress={async () => {
+                    try {
+                      const text = `🚗 *Vehicle Details*\n\n🔢 *Registration:* ${detail.regNo}\n🔧 *Chassis:* ${detail.chassisNo}\n📄 *Loan:* ${detail.loanNo}\n🏦 *Bank:* ${detail.bank}\n👤 *Customer:* ${detail.customerName}\n📍 *Address:* ${detail.address}`;
+                      const token = await SecureStore.getItemAsync('token');
+                      // Fire-and-forget share history
+                      axios.post(`${getBaseURL()}/api/history/share`, {
+                        vehicleId: detail._id,
+                        vehicleType: (detail.vehicleType || 'other').toString().toLowerCase().includes('two') ? 'two_wheeler' : (detail.vehicleType || '').toString().toLowerCase().includes('four') ? 'four_wheeler' : (detail.vehicleType || '').toString().toLowerCase().includes('cv') ? 'cv' : 'other',
+                        channel: 'whatsapp',
+                        payloadPreview: text.slice(0, 500),
+                        metadata: { regNo: detail.regNo || '', chassisNo: detail.chassisNo || '' }
+                      }, { headers: { Authorization: `Bearer ${token}` } }).catch(()=>{});
+
+                      const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
+                      const { Linking } = require('react-native');
+                      Linking.openURL(url).catch(() => {});
+                    } catch (_) {}
                   }}>
                     <Text style={styles.whatsBtnText}>📱 Share on WhatsApp</Text>
                   </TouchableOpacity>

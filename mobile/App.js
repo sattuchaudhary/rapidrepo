@@ -1,5 +1,8 @@
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
+import axios from 'axios';
+import { getBaseURL } from './utils/config';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as SecureStore from 'expo-secure-store';
@@ -18,6 +21,9 @@ const Stack = createNativeStackNavigator();
 export default function App() {
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const appState = useRef(AppState.currentState);
+  const sessionIdRef = useRef(null);
+  const startedAtRef = useRef(null);
   useEffect(() => {
     (async () => {
       try {
@@ -28,6 +34,63 @@ export default function App() {
       }
     })();
   }, []);
+
+  // App usage session tracking
+  useEffect(() => {
+    let isActive = true;
+
+    const startSession = async () => {
+      try {
+        const token = await SecureStore.getItemAsync('token');
+        if (!token) return;
+        const res = await axios.post(`${getBaseURL()}/api/history/usage/start`, {
+          platform: 'mobile',
+          metadata: { appState: appState.current }
+        }, { headers: { Authorization: `Bearer ${token}` } });
+        sessionIdRef.current = res.data?.data?.sessionId || null;
+        startedAtRef.current = Date.now();
+      } catch (_) {}
+    };
+
+    const endSession = async () => {
+      try {
+        const token = await SecureStore.getItemAsync('token');
+        if (!token) return;
+        const sid = sessionIdRef.current;
+        if (!sid) return;
+        await axios.post(`${getBaseURL()}/api/history/usage/end`, {
+          sessionId: sid,
+          endedAt: new Date().toISOString()
+        }, { headers: { Authorization: `Bearer ${token}` } });
+        sessionIdRef.current = null;
+        startedAtRef.current = null;
+      } catch (_) {}
+    };
+
+    const handleAppStateChange = async (nextState) => {
+      const prev = appState.current;
+      appState.current = nextState;
+      // Move to active -> start session; move away from active -> end session
+      if (prev.match(/inactive|background/) && nextState === 'active') {
+        await startSession();
+      } else if (prev === 'active' && nextState.match(/inactive|background/)) {
+        await endSession();
+      }
+    };
+
+    // On mount, start session if logged in
+    if (isLoggedIn) {
+      startSession();
+    }
+
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      isActive = false;
+      sub && sub.remove && sub.remove();
+      // End any ongoing session
+      endSession();
+    };
+  }, [isLoggedIn]);
   return (
     <NavigationContainer>
       {!isBootstrapping && (

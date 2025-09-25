@@ -1,19 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, Card, CardContent, Grid, TextField, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, CircularProgress } from '@mui/material';
+import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, CircularProgress } from '@mui/material';
 import axios from 'axios';
 
 const UserStatistics = () => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [dateStart, setDateStart] = useState('');
-  const [dateEnd, setDateEnd] = useState('');
 
   const fetchData = async () => {
     try {
       setLoading(true); setError('');
+      const token = localStorage.getItem('token');
       const res = await axios.get('http://localhost:5000/api/tenant/users/agents/stats/search', {
-        params: { dateStart, dateEnd }
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined
       });
       setRows(res.data?.data || []);
     } catch (e) {
@@ -23,43 +22,38 @@ const UserStatistics = () => {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+
+    // Schedule auto-refresh at next local midnight, then every 24h
+    const now = new Date();
+    const nextMidnight = new Date(now);
+    nextMidnight.setHours(24, 0, 0, 0); // today 24:00 -> next day 00:00
+    const msUntilMidnight = nextMidnight.getTime() - now.getTime();
+
+    const midnightTimeout = setTimeout(() => {
+      fetchData();
+      // After first trigger, set daily interval
+      const dailyInterval = setInterval(fetchData, 24 * 60 * 60 * 1000);
+      // Store interval id on window to allow cleanup below
+      // Using a symbol-like key to avoid collisions
+      window.__tenantUserStatsDailyInterval = dailyInterval;
+    }, msUntilMidnight);
+
+    return () => {
+      clearTimeout(midnightTimeout);
+      if (window.__tenantUserStatsDailyInterval) {
+        clearInterval(window.__tenantUserStatsDailyInterval);
+        delete window.__tenantUserStatsDailyInterval;
+      }
+    };
+  }, []);
 
   return (
     <Box>
       <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', mb: 2 }}>
         User Statistics
       </Typography>
-
-      <Card sx={{ mb: 2 }}>
-        <CardContent>
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={4} md={3}>
-              <TextField
-                label="Start Date"
-                type="date"
-                value={dateStart}
-                onChange={(e)=>setDateStart(e.target.value)}
-                InputLabelProps={{ shrink: true }}
-                fullWidth
-              />
-            </Grid>
-            <Grid item xs={12} sm={4} md={3}>
-              <TextField
-                label="End Date"
-                type="date"
-                value={dateEnd}
-                onChange={(e)=>setDateEnd(e.target.value)}
-                InputLabelProps={{ shrink: true }}
-                fullWidth
-              />
-            </Grid>
-            <Grid item xs={12} sm={4} md={3}>
-              <Button variant="contained" onClick={fetchData} sx={{ mt: { xs: 1.5, sm: 3 } }}>Apply</Button>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
 
       <TableContainer component={Paper}>
         <Table size="small">
