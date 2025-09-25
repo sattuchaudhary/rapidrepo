@@ -1,4 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import axios from 'axios';
@@ -25,12 +26,14 @@ export default function App() {
   const sessionIdRef = useRef(null);
   const startedAtRef = useRef(null);
   useEffect(() => {
+    SplashScreen.preventAutoHideAsync().catch(() => {});
     (async () => {
       try {
         const token = await SecureStore.getItemAsync('token');
         setIsLoggedIn(!!token);
       } finally {
         setIsBootstrapping(false);
+        SplashScreen.hideAsync().catch(() => {});
       }
     })();
   }, []);
@@ -106,7 +109,7 @@ export default function App() {
         </Stack.Navigator>
       )}
       <GlobalSyncOverlay />
-      <StatusBar style="auto" />
+      <StatusBar style="light" />
     </NavigationContainer>
   );
 }

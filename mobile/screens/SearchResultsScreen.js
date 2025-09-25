@@ -29,6 +29,7 @@ export default function SearchResultsScreen({ route, navigation }) {
   const [azMode, setAzMode] = useState(true);
   const [hasUserSearched, setHasUserSearched] = useState(false);
   const [suppressClearOnce, setSuppressClearOnce] = useState(false);
+  const [agent, setAgent] = useState(null);
 
   // Helper: log search click to server with robust error reporting
   const logSearchClick = useCallback(async (vehicle, queryText) => {
@@ -79,6 +80,39 @@ export default function SearchResultsScreen({ route, navigation }) {
     
     setSearchIndex({ regIndex, chassisIndex });
   };
+
+  // Load logged-in agent to drive role-based UI
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await SecureStore.getItemAsync('agent');
+        if (stored) setAgent(JSON.parse(stored));
+      } catch (_) {}
+    })();
+  }, []);
+
+  const isRepoAgent = useMemo(() => {
+    if (!agent) return false;
+    try {
+      const possible = [
+        agent.role,
+        agent.type,
+        agent.designation,
+        agent.userType,
+        agent.title,
+        agent.team,
+        agent.department,
+      ]
+        .filter(Boolean)
+        .map((v) => String(v).toLowerCase());
+      if (possible.some((v) => v.includes('repo'))) return true;
+      // Fallback: scan full object text once
+      const blob = JSON.stringify(agent).toLowerCase();
+      return blob.includes('repo');
+    } catch (_) {
+      return false;
+    }
+  }, [agent]);
 
   const runSearch = async (qVal, type, showLoading = false, clearInputsAfter = false) => {
     try {
@@ -257,7 +291,7 @@ export default function SearchResultsScreen({ route, navigation }) {
     }
   };
 
-  // Build balanced A-Z columns when azMode is enabled
+  // Build balanced A–Z columns when azMode is enabled
   const azColumns = useMemo(() => {
     if (!azMode || !Array.isArray(results) || results.length === 0) {
       return { left: [], right: [] };
@@ -277,13 +311,9 @@ export default function SearchResultsScreen({ route, navigation }) {
       return na - nb;
     };
     const sorted = [...results].sort(cmp);
-    const left = [];
-    const right = [];
-    for (let i = 0; i < sorted.length; i++) {
-      const k = getKey(sorted[i]);
-      const ch = k[0] || '';
-      if (ch >= 'A' && ch <= 'M') left.push(sorted[i]); else right.push(sorted[i]);
-    }
+    const mid = Math.ceil(sorted.length / 2);
+    const left = sorted.slice(0, mid);
+    const right = sorted.slice(mid);
     return { left, right };
   }, [results, azMode]);
 
@@ -521,125 +551,192 @@ export default function SearchResultsScreen({ route, navigation }) {
                   </TouchableOpacity>
                 </View>
 
-                {/* Details Section */}
-                <View style={styles.detailsSection}>
-                  <Text style={styles.sectionTitle}>Vehicle Information</Text>
-                  
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIcon}>
-                      <Text style={styles.detailIconText}>🔢</Text>
-                    </View>
-                    <View style={styles.detailContent}>
-                      <Text style={styles.detailLabel}>Registration Number</Text>
-                      <Text style={styles.detailValue}>{detail.regNo || '—'}</Text>
-                    </View>
-                  </View>
+                {isRepoAgent ? (
+                  <>
+                    <View style={styles.detailsSection}>
+                      <Text style={styles.sectionTitle}>Vehicle Information</Text>
 
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIcon}>
-                      <Text style={styles.detailIconText}>🔧</Text>
-                    </View>
-                    <View style={styles.detailContent}>
-                      <Text style={styles.detailLabel}>Chassis Number</Text>
-                      <Text style={styles.detailValue}>{detail.chassisNo || '—'}</Text>
-                    </View>
-                  </View>
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>👤</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Name</Text>
+                          <Text style={styles.detailValue}>{detail.customerName || '—'}</Text>
+                        </View>
+                      </View>
 
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIcon}>
-                      <Text style={styles.detailIconText}>📄</Text>
-                    </View>
-                    <View style={styles.detailContent}>
-                      <Text style={styles.detailLabel}>Loan Number</Text>
-                      <Text style={styles.detailValue}>{detail.loanNo || '—'}</Text>
-                    </View>
-                  </View>
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>🔢</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Vehicle Number</Text>
+                          <Text style={styles.detailValue}>{detail.regNo || '—'}</Text>
+                        </View>
+                      </View>
 
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIcon}>
-                      <Text style={styles.detailIconText}>🏦</Text>
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>🔧</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Chassis Number</Text>
+                          <Text style={styles.detailValue}>{detail.chassisNo || '—'}</Text>
+                        </View>
+                      </View>
                     </View>
-                    <View style={styles.detailContent}>
-                      <Text style={styles.detailLabel}>Bank</Text>
-                      <Text style={styles.detailValue}>{detail.bank || '—'}</Text>
-                    </View>
-                  </View>
 
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIcon}>
-                      <Text style={styles.detailIconText}>🏭</Text>
-                    </View>
-                    <View style={styles.detailContent}>
-                      <Text style={styles.detailLabel}>Make</Text>
-                      <Text style={styles.detailValue}>{detail.make || '—'}</Text>
-                    </View>
-                  </View>
-                </View>
+                    {/* Action: WhatsApp share (limited fields) */}
+                    <View style={styles.actionSection}>
+                      <TouchableOpacity style={styles.whatsBtn} onPress={async () => {
+                        try {
+                          const name = detail.customerName || '';
+                          const reg = detail.regNo || '';
+                          const chs = detail.chassisNo || '';
+                          const text = `🚗 *Vehicle Details*\n\n👤 *Name:* ${name}\n🔢 *Vehicle:* ${reg}\n🔧 *Chassis:* ${chs}`;
+                          const token = await SecureStore.getItemAsync('token');
+                          // Fire-and-forget share history
+                          axios.post(`${getBaseURL()}/api/history/share`, {
+                            vehicleId: detail._id,
+                            vehicleType: (detail.vehicleType || 'other').toString().toLowerCase().includes('two') ? 'two_wheeler' : (detail.vehicleType || '').toString().toLowerCase().includes('four') ? 'four_wheeler' : (detail.vehicleType || '').toString().toLowerCase().includes('cv') ? 'cv' : 'other',
+                            channel: 'whatsapp',
+                            payloadPreview: text.slice(0, 500),
+                            metadata: { regNo: reg, chassisNo: chs }
+                          }, { headers: { Authorization: `Bearer ${token}` } }).catch(()=>{});
 
-                {/* Customer Section */}
-                <View style={styles.detailsSection}>
-                  <Text style={styles.sectionTitle}>Customer Information</Text>
-                  
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIcon}>
-                      <Text style={styles.detailIconText}>👤</Text>
+                          const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
+                          const { Linking } = require('react-native');
+                          Linking.openURL(url).catch(() => {});
+                        } catch (_) {}
+                      }}>
+                        <Text style={styles.whatsBtnText}>📱 Share on WhatsApp</Text>
+                      </TouchableOpacity>
                     </View>
-                    <View style={styles.detailContent}>
-                      <Text style={styles.detailLabel}>Customer Name</Text>
-                      <Text style={styles.detailValue}>{detail.customerName || '—'}</Text>
-                    </View>
-                  </View>
+                  </>
+                ) : (
+                  <>
+                    {/* Details Section (full) */}
+                    <View style={styles.detailsSection}>
+                      <Text style={styles.sectionTitle}>Vehicle Information</Text>
+                      
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>🔢</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Registration Number</Text>
+                          <Text style={styles.detailValue}>{detail.regNo || '—'}</Text>
+                        </View>
+                      </View>
 
-                  <View style={styles.detailRow}>
-                    <View style={styles.detailIcon}>
-                      <Text style={styles.detailIconText}>📍</Text>
-                    </View>
-                    <View style={styles.detailContent}>
-                      <Text style={styles.detailLabel}>Address</Text>
-                      <Text style={styles.detailValue}>{detail.address || '—'}</Text>
-                    </View>
-                  </View>
-                </View>
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>🔧</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Chassis Number</Text>
+                          <Text style={styles.detailValue}>{detail.chassisNo || '—'}</Text>
+                        </View>
+                      </View>
 
-                {/* Action Buttons */}
-                <View style={styles.actionSection}>
-                  <TouchableOpacity style={styles.primaryBtn} onPress={async () => {
-                    try {
-                      setConfirming(true);
-                      const token = await SecureStore.getItemAsync('token');
-                      await axios.put(`${getBaseURL()}/api/tenant/data/vehicle/${detail._id}/confirm`, {}, {
-                        headers: { Authorization: `Bearer ${token}` }
-                      });
-                      setConfirming(false);
-                      setDetailOpen(false);
-                    } catch (_) { setConfirming(false); }
-                  }}>
-                    <Text style={styles.primaryBtnText}>
-                      {confirming ? '⏳ Confirming...' : '✅ Confirm Vehicle'}
-                    </Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity style={styles.whatsBtn} onPress={async () => {
-                    try {
-                      const text = `🚗 *Vehicle Details*\n\n🔢 *Registration:* ${detail.regNo}\n🔧 *Chassis:* ${detail.chassisNo}\n📄 *Loan:* ${detail.loanNo}\n🏦 *Bank:* ${detail.bank}\n👤 *Customer:* ${detail.customerName}\n📍 *Address:* ${detail.address}`;
-                      const token = await SecureStore.getItemAsync('token');
-                      // Fire-and-forget share history
-                      axios.post(`${getBaseURL()}/api/history/share`, {
-                        vehicleId: detail._id,
-                        vehicleType: (detail.vehicleType || 'other').toString().toLowerCase().includes('two') ? 'two_wheeler' : (detail.vehicleType || '').toString().toLowerCase().includes('four') ? 'four_wheeler' : (detail.vehicleType || '').toString().toLowerCase().includes('cv') ? 'cv' : 'other',
-                        channel: 'whatsapp',
-                        payloadPreview: text.slice(0, 500),
-                        metadata: { regNo: detail.regNo || '', chassisNo: detail.chassisNo || '' }
-                      }, { headers: { Authorization: `Bearer ${token}` } }).catch(()=>{});
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>📄</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Loan Number</Text>
+                          <Text style={styles.detailValue}>{detail.loanNo || '—'}</Text>
+                        </View>
+                      </View>
 
-                      const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
-                      const { Linking } = require('react-native');
-                      Linking.openURL(url).catch(() => {});
-                    } catch (_) {}
-                  }}>
-                    <Text style={styles.whatsBtnText}>📱 Share on WhatsApp</Text>
-                  </TouchableOpacity>
-                </View>
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>🏦</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Bank</Text>
+                          <Text style={styles.detailValue}>{detail.bank || '—'}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>🏭</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Make</Text>
+                          <Text style={styles.detailValue}>{detail.make || '—'}</Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Customer Section */}
+                    <View style={styles.detailsSection}>
+                      <Text style={styles.sectionTitle}>Customer Information</Text>
+                      
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>👤</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Customer Name</Text>
+                          <Text style={styles.detailValue}>{detail.customerName || '—'}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>📍</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Address</Text>
+                          <Text style={styles.detailValue}>{detail.address || '—'}</Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Action Buttons */}
+                    <View style={styles.actionSection}>
+                      <TouchableOpacity style={styles.primaryBtn} onPress={async () => {
+                        try {
+                          setConfirming(true);
+                          const token = await SecureStore.getItemAsync('token');
+                          await axios.put(`${getBaseURL()}/api/tenant/data/vehicle/${detail._id}/confirm`, {}, {
+                            headers: { Authorization: `Bearer ${token}` }
+                          });
+                          setConfirming(false);
+                          setDetailOpen(false);
+                        } catch (_) { setConfirming(false); }
+                      }}>
+                        <Text style={styles.primaryBtnText}>
+                          {confirming ? '⏳ Confirming...' : '✅ Confirm Vehicle'}
+                        </Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity style={styles.whatsBtn} onPress={async () => {
+                        try {
+                          const text = `🚗 *Vehicle Details*\n\n🔢 *Registration:* ${detail.regNo}\n🔧 *Chassis:* ${detail.chassisNo}\n📄 *Loan:* ${detail.loanNo}\n🏦 *Bank:* ${detail.bank}\n👤 *Customer:* ${detail.customerName}\n📍 *Address:* ${detail.address}`;
+                          const token = await SecureStore.getItemAsync('token');
+                          // Fire-and-forget share history
+                          axios.post(`${getBaseURL()}/api/history/share`, {
+                            vehicleId: detail._id,
+                            vehicleType: (detail.vehicleType || 'other').toString().toLowerCase().includes('two') ? 'two_wheeler' : (detail.vehicleType || '').toString().toLowerCase().includes('four') ? 'four_wheeler' : (detail.vehicleType || '').toString().toLowerCase().includes('cv') ? 'cv' : 'other',
+                            channel: 'whatsapp',
+                            payloadPreview: text.slice(0, 500),
+                            metadata: { regNo: detail.regNo || '', chassisNo: detail.chassisNo || '' }
+                          }, { headers: { Authorization: `Bearer ${token}` } }).catch(()=>{});
+
+                          const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
+                          const { Linking } = require('react-native');
+                          Linking.openURL(url).catch(() => {});
+                        } catch (_) {}
+                      }}>
+                        <Text style={styles.whatsBtnText}>📱 Share on WhatsApp</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
               </ScrollView>
             ) : (
               <View style={styles.loadingContainer}>

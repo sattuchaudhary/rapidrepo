@@ -1139,7 +1139,7 @@ export default function DashboardScreen({ navigation }) {
       
 
       {/* Bottom bar with offline/online toggle and sync */}
-      <View style={styles.bottomBar}>
+      {/* <View style={styles.bottomBar}>
         <View style={styles.modeGroup}>
           <TouchableOpacity
             style={[styles.modeBtn, isOfflineMode && styles.modeBtnActive]}
@@ -1173,7 +1173,93 @@ export default function DashboardScreen({ navigation }) {
             </TouchableOpacity>
           </LinearGradient>
         </View>
+      </View> */}
+
+
+      {/* Bottom bar with improved layout */}
+      <View style={styles.bottomBar}>
+        {/* Mode Toggle Section */}
+        <View style={styles.modeSection}>
+          <Text style={styles.modeSectionTitle}>Connection Mode</Text>
+          <View style={styles.modeToggleContainer}>
+            <TouchableOpacity
+              style={[styles.modeToggleBtn, isOfflineMode && styles.modeToggleBtnActive]}
+              onPress={() => setIsOfflineMode(true)}
+            >
+              <View style={styles.modeToggleContent}>
+                <Text style={styles.modeToggleIcon}>📴</Text>
+                <Text style={[styles.modeToggleText, isOfflineMode && styles.modeToggleTextActive]}>
+                  Offline
+                </Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeToggleBtn, !isOfflineMode && styles.modeToggleBtnActive]}
+              onPress={() => setIsOfflineMode(false)}
+            >
+              <View style={styles.modeToggleContent}>
+                <Text style={styles.modeToggleIcon}>📶</Text>
+                <Text style={[styles.modeToggleText, !isOfflineMode && styles.modeToggleTextActive]}>
+                  Online
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Action Buttons Section */}
+        <View style={styles.actionSection}>
+          <LinearGradient 
+            colors={["#10B981", "#059669"]} 
+            start={{ x: 0, y: 0 }} 
+            end={{ x: 1, y: 1 }} 
+            style={[styles.primaryActionGradient, downloading && { opacity: 0.7 }]}
+          >
+            <TouchableOpacity
+              style={styles.primaryActionBtn}
+              onPress={syncViaJsonDump}
+              disabled={downloading}
+            >
+              <View style={styles.actionBtnContent}>
+                <Text style={styles.actionBtnIcon}>
+                  {downloading ? '⏳' : '🔄'}
+                </Text>
+                <View style={styles.actionBtnTextContainer}>
+                  <Text style={styles.actionBtnTitle}>
+                    {downloading ? 'Syncing...' : 'Sync Data'}
+                  </Text>
+                  <Text style={styles.actionBtnSubtitle}>
+                    {downloading ? 'Please wait' : 'Update local database'}
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </LinearGradient>
+
+          <LinearGradient 
+            colors={["#3B82F6", "#1D4ED8"]} 
+            start={{ x: 0, y: 0 }} 
+            end={{ x: 1, y: 1 }} 
+            style={styles.secondaryActionGradient}
+          >
+            <TouchableOpacity
+              style={styles.secondaryActionBtn}
+              onPress={refreshLocalCount}
+            >
+              <View style={styles.actionBtnContent}>
+                <Text style={styles.actionBtnIcon}>🔄</Text>
+                <View style={styles.actionBtnTextContainer}>
+                  <Text style={styles.actionBtnTitle}>Refresh</Text>
+                  <Text style={styles.actionBtnSubtitle}>Update count</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
       </View>
+
+
+
 
       {/* Simple left drawer */}
       <Modal visible={drawerOpen} transparent animationType="none" onRequestClose={() => setDrawerOpen(false)}>
@@ -1361,14 +1447,142 @@ const styles = StyleSheet.create({
   chev: { color: '#fff', fontSize: 26, marginLeft: 6 },
   muted: { color: '#666', fontSize: 12 },
   bottomBar: { 
+    // position: 'absolute', 
+    // bottom: 12, 
+    // left: 16, 
+    // right: 16, 
+    // flexDirection: 'row', 
+    // alignItems: 'center', 
+    // gap: 12 
+
     position: 'absolute', 
-    bottom: 12, 
-    left: 16, 
-    right: 16, 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 12 
+    bottom: 0, 
+    left: 0, 
+    right: 0, 
+    backgroundColor: 'rgba(17, 24, 39, 0.95)',
+    backdropFilter: 'blur(20px)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12
   },
+   modeSection: {
+    marginBottom: 16
+  },
+    modeSectionTitle: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    textAlign: 'center'
+  },
+    modeToggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(31, 41, 55, 0.8)',
+    borderRadius: 16,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)'
+  },
+      modeToggleBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s ease'
+  },
+    modeToggleBtnActive: {
+    backgroundColor: '#FACC15',
+    shadowColor: '#FACC15',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3
+  },
+    modeToggleContent: {
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  
+bottomBar: { 
+    position: 'absolute', 
+    bottom: 0, 
+    left: 0, 
+    right: 0, 
+    backgroundColor: 'rgba(17, 24, 39, 0.95)',
+    backdropFilter: 'blur(20px)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12
+  },
+  
+  // Mode Toggle Section
+  modeSection: {
+    marginBottom: 16
+  },
+  modeSectionTitle: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    textAlign: 'center'
+  },
+  modeToggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(31, 41, 55, 0.8)',
+    borderRadius: 16,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)'
+  },
+  modeToggleBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s ease'
+  },
+  modeToggleBtnActive: {
+    backgroundColor: '#FACC15',
+    shadowColor: '#FACC15',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  modeToggleContent: {
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  modeToggleIcon: {
+    fontSize: 16,
+    marginBottom: 4
+  },
+  modeToggleText: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.5
+  },
+  modeToggleTextActive: {
+    color: '#111827'
+  },
+
+
+
+
+
   modeGroup: { flex: 1, flexDirection: 'row', gap: 12 },
   modeBtn: {
     flex: 1,
@@ -1393,6 +1607,80 @@ const styles = StyleSheet.create({
     gap: 12,
     flex: 1
   },
+
+
+
+
+
+
+    // Action Buttons Section
+  actionSection: {
+    flexDirection: 'row',
+    gap: 12
+  },
+    primaryActionGradient: {
+    flex: 2,
+    borderRadius: 16,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6
+  },
+
+    secondaryActionGradient: {
+    flex: 1,
+    borderRadius: 16,
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6
+  },
+    primaryActionBtn: {
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+
+    secondaryActionBtn: {
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+
+    actionBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12
+  },
+
+    actionBtnIcon: {
+    fontSize: 20
+  },
+
+    actionBtnTextContainer: {
+    alignItems: 'flex-start'
+  },
+
+    actionBtnTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.5
+  },
+
+    actionBtnSubtitle: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: 1
+  },
+  
+  
   actionBtnGradient: { flex: 1, borderRadius: 24 },
   actionBtn: { paddingVertical: 18, paddingHorizontal: 18, alignItems: 'center' },
   bottomButtonText: { color: '#fff', fontWeight: '900', letterSpacing: 1 },
