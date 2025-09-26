@@ -67,9 +67,23 @@ const authLimiter = rateLimit({
 // Apply general rate limiting to all routes
 app.use(generalLimiter);
 
-// Body parser middleware
-app.use(express.json({ limit: '40mb' }));
-app.use(express.urlencoded({ extended: true }));
+// Body parser middleware with no size limits and 20 minute timeouts
+app.use(express.json({ 
+  limit: '1gb', // 1GB limit (effectively unlimited for most cases)
+  timeout: '1200000' // 20 minutes
+}));
+app.use(express.urlencoded({ 
+  extended: true,
+  limit: '1gb', // 1GB limit (effectively unlimited for most cases)
+  timeout: '1200000' // 20 minutes
+}));
+
+// Increase server timeout to 20 minutes
+app.use((req, res, next) => {
+  req.setTimeout(1200000); // 20 minutes
+  res.setTimeout(1200000); // 20 minutes
+  next();
+});
 
 // Routes
 app.use('/api/auth', authLimiter, authRoutes);

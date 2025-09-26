@@ -1038,6 +1038,9 @@ const MobileUpload = () => {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data'
         },
+        timeout: 1200000, // 20 minutes timeout
+        maxContentLength: 1024 * 1024 * 1024, // 1GB (effectively unlimited)
+        maxBodyLength: 1024 * 1024 * 1024, // 1GB (effectively unlimited)
         onUploadProgress: (progressEvent) => {
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
           setUploadProgress(progress);

@@ -16,8 +16,10 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 40 * 1024 * 1024, // 40MB limit
-    files: 1
+    fileSize: 1024 * 1024 * 1024, // 1GB limit (effectively unlimited)
+    files: 1,
+    fieldSize: 1024 * 1024 * 1024, // 1GB field size
+    fieldNameSize: 1000 // 1KB field name size
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = [
@@ -519,6 +521,32 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
   } catch (error) {
     console.error('Upload error:', error);
+    
+    // Handle specific error types
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ 
+        success: false, 
+        message: 'File too large. Maximum size allowed is 1GB.',
+        error: 'FILE_TOO_LARGE'
+      });
+    }
+    
+    if (error.code === 'LIMIT_UNEXPECTED_FILE') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Unexpected file field.',
+        error: 'INVALID_FILE_FIELD'
+      });
+    }
+    
+    if (error.name === 'TimeoutError') {
+      return res.status(408).json({ 
+        success: false, 
+        message: 'Upload timeout. Please try again with a smaller file or check your connection.',
+        error: 'UPLOAD_TIMEOUT'
+      });
+    }
+    
     res.status(500).json({ 
       success: false, 
       message: 'Upload failed',
