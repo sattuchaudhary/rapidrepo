@@ -5,7 +5,7 @@ export const getBaseURL = () => {
   const envUrl = process.env.EXPO_PUBLIC_API_URL || process.env.API_URL;
   if (envUrl) return envUrl.replace(/\/$/, '');
 
-  if (Platform.OS === 'web') return 'http://localhost:5000';
+  if (Platform.OS === 'web') return 'https://api.rapidbuddy.cloud';
 
   // Try to get the host from Expo's debugger host
   const hostUri =
@@ -16,15 +16,11 @@ export const getBaseURL = () => {
   if (hostUri) {
     const host = String(hostUri).split(':')[0];
     const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
-    if (isIp) return `http://${host}:5000`;
+    if (isIp) return `https://api.rapidbuddy.cloud`;
   }
 
-  // Fallback to your current network IP
-  // Update this IP if your network changes
-  const fallbackIP = '192.168.1.19';
-  
-  if (Platform.OS === 'android') return `http://${fallbackIP}:5000`;
-  return `http://${fallbackIP}:5000`;
+  // Production API URL
+  return 'https://api.rapidbuddy.cloud';
 };
 
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -7,10 +7,10 @@ import {
   TextField,
   Button,
   Typography,
-  Link,
   Alert
 } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
+import './Login.css';
 
 const Login = () => {
   const [formData, setFormData] = useState({
@@ -34,81 +34,120 @@ const Login = () => {
 
     const result = await login(formData.identifier, formData.password);
     if (result.success) {
-      // Navigate based on user type and redirect path
-      if (result.redirectTo) {
-        navigate(result.redirectTo);
-      } else {
-        navigate('/');
-      }
+      // Navigate to the specified redirect URL
+      navigate('/app/dashboard');
     } else {
       setError(result.message);
     }
   };
 
   return (
-    <Container component="main" maxWidth="xs">
-      <Box
-        sx={{
-          marginTop: 8,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-        }}
-      >
-        <Paper elevation={3} sx={{ p: 4, width: '100%' }}>
-          <Typography component="h1" variant="h5" align="center" gutterBottom>
-            Sign In
-          </Typography>
-          
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
+    <div className="login-page">
+      {/* Header */}
+      <header className="login-header">
+        <div className="container">
+          <div className="nav-brand">
+            <h2>RAPIDREPO</h2>
+          </div>
+          <div className="header-actions">
+            <button className="back-to-home" onClick={() => navigate('/')}>
+              ← Back to Home
+            </button>
+          </div>
+        </div>
+      </header>
 
-          <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              id="identifier"
-              label="Email or Phone Number"
-              name="identifier"
-              autoComplete="email"
-              autoFocus
-              value={formData.identifier}
-              onChange={handleChange}
-              helperText="Enter your email address or phone number"
-            />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="password"
-              label="Password"
-              type="password"
-              id="password"
-              autoComplete="current-password"
-              value={formData.password}
-              onChange={handleChange}
-            />
-            <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              sx={{ mt: 3, mb: 2 }}
-            >
-              Sign In
-            </Button>
-            <Box sx={{ textAlign: 'center' }}>
-              <Link component={RouterLink} to="/register" variant="body2">
-                {"Don't have an account? Sign Up"}
-              </Link>
-            </Box>
-          </Box>
-        </Paper>
-      </Box>
-    </Container>
+      {/* Main Content */}
+      <main className="login-main">
+        <div className="login-container">
+          <div className="login-card">
+            <div className="login-header-content">
+              <div className="login-logo">
+                <div className="logo-icon">🚀</div>
+                <h1>Welcome Back</h1>
+                <p>Sign in to your Rapidrepo account</p>
+              </div>
+            </div>
+
+            <div className="login-form-container">
+              {error && (
+                <Alert severity="error" className="error-alert">
+                  {error}
+                </Alert>
+              )}
+
+              <Box component="form" onSubmit={handleSubmit} className="login-form">
+                <div className="form-group">
+                  <TextField
+                    fullWidth
+                    id="identifier"
+                    label="Email or Phone Number"
+                    name="identifier"
+                    autoComplete="email"
+                    autoFocus
+                    value={formData.identifier}
+                    onChange={handleChange}
+                    helperText="Enter your email address or phone number"
+                    className="custom-input"
+                  />
+                </div>
+                
+                <div className="form-group">
+                  <TextField
+                    fullWidth
+                    name="password"
+                    label="Password"
+                    type="password"
+                    id="password"
+                    autoComplete="current-password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    className="custom-input"
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  fullWidth
+                  className="login-btn"
+                >
+                  Sign In to Rapidrepo
+                </Button>
+              </Box>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="login-footer">
+        <div className="container">
+          <div className="footer-content">
+            <div className="footer-section">
+              <h4>RAPIDREPO</h4>
+              <p>Transforming vehicle repossession with technology</p>
+            </div>
+            <div className="footer-section">
+              <h4>Quick Links</h4>
+              <ul>
+                <li><a href="/#home">Home</a></li>
+                <li><a href="/#about">About</a></li>
+                <li><a href="/#features">Features</a></li>
+                <li><a href="/#pricing">Pricing</a></li>
+              </ul>
+            </div>
+            <div className="footer-section">
+              <h4>Contact</h4>
+              <p>Email: info@rapidrepo.com</p>
+              <p>Phone: +91 9997679791</p>
+            </div>
+          </div>
+          <div className="footer-bottom">
+            <p>&copy; 2025 Rapidrepo. All rights reserved.</p>
+          </div>
+        </div>
+      </footer>
+    </div>
   );
 };
 

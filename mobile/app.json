@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Rapid Repo",
-    "slug": "Rapid Repo",
+    "slug": "rapid-repo",
     "version": "1.0.0",
     "sdkVersion": "54.0.0",
     "orientation": "portrait",
@@ -14,9 +14,12 @@
       "backgroundColor": "#10121A"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rapidbuddy.rapidrepo"
     },
     "android": {
+      "package": "com.rapidbuddy.rapidrepo",
+      "versionCode": 1,
       "splash": {
         "image": "./assets/splash-icon.png",
         "resizeMode": "contain",
@@ -26,7 +29,13 @@
         "foregroundImage": "./assets/logoo.png",
         "backgroundColor": "#10121A"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/logoo.png",
@@ -34,6 +43,11 @@
     },
     "plugins": [
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "45a8d92d-3c91-454a-97a5-0f1da1140815"
+      }
+    }
   }
 }

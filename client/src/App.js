@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 
 import { useAuth } from './contexts/AuthContext';
+import LandingPage from './components/LandingPage';
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
 import Dashboard from './components/dashboard/Dashboard';
@@ -32,22 +33,25 @@ function App() {
 
   return (
     <Routes>
+      {/* Landing page - always accessible */}
+      <Route path="/" element={<LandingPage />} />
+      
       {/* Public routes */}
       <Route
         path="/login"
         element={
           isAuthenticated ? (
-            <Navigate to={user?.role === 'super_admin' ? '/admin' : user?.role === 'admin' ? '/tenant' : '/dashboard'} replace />
+            <Navigate to={user?.role === 'super_admin' ? '/app/admin' : user?.role === 'admin' ? '/app/tenant' : '/app/dashboard'} replace />
           ) : (
             <Login />
           )
         }
       />
       <Route
-        path="/register"
+        path="/sattu/chaudhary/192"
         element={
           isAuthenticated ? (
-            <Navigate to={user?.role === 'super_admin' ? '/admin' : user?.role === 'admin' ? '/tenant' : '/dashboard'} replace />
+            <Navigate to={user?.role === 'super_admin' ? '/app/admin' : user?.role === 'admin' ? '/app/tenant' : '/app/dashboard'} replace />
           ) : (
             <Register />
           )
@@ -56,7 +60,7 @@ function App() {
 
       {/* Protected routes */}
       <Route
-        path="/"
+        path="/app"
         element={
           <ProtectedRoute>
             <Layout />
@@ -68,9 +72,9 @@ function App() {
           path="dashboard"
           element={
             user?.role === 'super_admin' ? (
-              <Navigate to="/admin" replace />
+              <Navigate to="/app/admin" replace />
             ) : user?.role === 'admin' ? (
-              <Navigate to="/tenant" replace />
+              <Navigate to="/app/tenant" replace />
             ) : (
               <Dashboard />
             )
@@ -84,7 +88,7 @@ function App() {
             user?.role === 'super_admin' ? (
               <AdminDashboard />
             ) : (
-              <Navigate to="/dashboard" replace />
+              <Navigate to="/app/dashboard" replace />
             )
           }
         />
@@ -94,7 +98,7 @@ function App() {
             user?.role === 'super_admin' ? (
               <UserManagement />
             ) : (
-              <Navigate to="/dashboard" replace />
+              <Navigate to="/app/dashboard" replace />
             )
           }
         />
@@ -104,7 +108,7 @@ function App() {
             user?.role === 'super_admin' ? (
               <TenantManagement />
             ) : (
-              <Navigate to="/dashboard" replace />
+              <Navigate to="/app/dashboard" replace />
             )
           }
         />
@@ -116,7 +120,7 @@ function App() {
             user?.role === 'admin' ? (
               <TenantAdminPanel />
             ) : (
-              <Navigate to="/dashboard" replace />
+              <Navigate to="/app/dashboard" replace />
             )
           }
         />
@@ -126,7 +130,7 @@ function App() {
             user?.role === 'admin' ? (
               <TenantAdminPanel />
             ) : (
-              <Navigate to="/dashboard" replace />
+              <Navigate to="/app/dashboard" replace />
             )
           }
         />
@@ -139,7 +143,7 @@ function App() {
           index
           element={
             <Navigate
-              to={user?.role === 'super_admin' ? '/admin' : user?.role === 'admin' ? '/tenant' : '/dashboard'}
+              to={user?.role === 'super_admin' ? '/app/admin' : user?.role === 'admin' ? '/app/tenant' : '/app/dashboard'}
               replace
             />
           }
