@@ -25,7 +25,17 @@ app.use(cors({
     const allowed = [
       process.env.CLIENT_URL || 'http://localhost:3000',
       'http://localhost:19006', // Expo web default
-      'http://127.0.0.1:19006'
+      'http://127.0.0.1:19006',
+      'https://kanufox.com',
+      'http://www.kanufox.com',
+      'http://72.60.103.24',
+      'https://72.60.103.24',
+      'https://rapidrepo.cloud',
+      'http://rapidrepo.cloud',
+      'https://rapidbuddy.cloud',
+      'http://rapidbuddy.cloud',
+      'https://api.rapidbuddy.cloud',
+      'http://api.rapidbuddy.cloud'
     ];
     if (!origin || allowed.includes(origin)) return callback(null, true);
     return callback(null, true); // allow all during development
