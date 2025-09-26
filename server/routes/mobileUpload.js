@@ -196,19 +196,30 @@ const validateData = (data, fieldMapping) => {
 };
 
 // Extract data from row using field mapping
-const extractDataFromRow = (row, headerMap) => {
+// If providedFieldMap is passed as { standardField: fileColumnName }, it takes precedence.
+const extractDataFromRow = (row, headerMap, providedFieldMap) => {
   const extractedData = {};
   
   for (const [field, config] of Object.entries(FIELD_MAPPING)) {
     let value = '';
     
-    for (const alias of config.aliases) {
-      const normalizedAlias = normalizeString(alias);
-      const header = headerMap[normalizedAlias];
-      
-      if (header && row[header] !== undefined && row[header] !== null && row[header] !== '') {
-        value = String(row[header]).trim();
-        break;
+    // 1) If explicit mapping is provided, use that column
+    if (providedFieldMap && providedFieldMap[field]) {
+      const mappedHeader = providedFieldMap[field];
+      if (mappedHeader && row[mappedHeader] !== undefined && row[mappedHeader] !== null && row[mappedHeader] !== '') {
+        value = String(row[mappedHeader]).trim();
+      }
+    }
+
+    // 2) Fallback: try aliases
+    if (value === '') {
+      for (const alias of config.aliases) {
+        const normalizedAlias = normalizeString(alias);
+        const header = headerMap[normalizedAlias];
+        if (header && row[header] !== undefined && row[header] !== null && row[header] !== '') {
+          value = String(row[header]).trim();
+          break;
+        }
       }
     }
     
@@ -217,6 +228,55 @@ const extractDataFromRow = (row, headerMap) => {
   
   return extractedData;
 };
+
+// Save/load header mappings per tenant + vehicleType + bank
+router.get('/mappings', async (req, res) => {
+  try {
+    const { vehicleType = '', bankId = '' } = req.query;
+    const tenant = await Tenant.findById(req.user.tenantId);
+    if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
+    const conn = await getTenantDB(tenant.name);
+    const Mapping = conn.model('HeaderMapping', new mongoose.Schema({
+      vehicleType: String,
+      bankId: String,
+      bankName: String,
+      mapping: Object,
+      updatedAt: { type: Date, default: Date.now }
+    }, { strict: false }), 'header_mappings');
+
+    const doc = await Mapping.findOne({ vehicleType, bankId }).lean();
+    res.json({ success: true, data: doc?.mapping || {} });
+  } catch (error) {
+    console.error('Get mappings error:', error);
+    res.status(500).json({ success: false, message: 'Failed to load mappings' });
+  }
+});
+
+router.post('/mappings', async (req, res) => {
+  try {
+    const { vehicleType = '', bankId = '', bankName = '', mapping = {} } = req.body || {};
+    const tenant = await Tenant.findById(req.user.tenantId);
+    if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
+    const conn = await getTenantDB(tenant.name);
+    const Mapping = conn.model('HeaderMapping', new mongoose.Schema({
+      vehicleType: String,
+      bankId: String,
+      bankName: String,
+      mapping: Object,
+      updatedAt: { type: Date, default: Date.now }
+    }, { strict: false }), 'header_mappings');
+
+    const doc = await Mapping.findOneAndUpdate(
+      { vehicleType, bankId },
+      { $set: { vehicleType, bankId, bankName, mapping, updatedAt: new Date() } },
+      { new: true, upsert: true }
+    ).lean();
+    res.json({ success: true, message: 'Mapping saved', data: doc.mapping });
+  } catch (error) {
+    console.error('Save mappings error:', error);
+    res.status(500).json({ success: false, message: 'Failed to save mappings' });
+  }
+});
 
 // Get banks/clients for dropdown
 router.get('/banks', async (req, res) => {
@@ -270,9 +330,17 @@ router.post('/preview', upload.single('file'), async (req, res) => {
       headerMap[normalizeString(key)] = key;
     }
 
-    // Process first 10 rows for preview
+    // Optional: use provided mapping
+    let providedFieldMap = {};
+    try {
+      if (req.body && req.body.mapping) {
+        providedFieldMap = typeof req.body.mapping === 'string' ? JSON.parse(req.body.mapping) : req.body.mapping;
+      }
+    } catch (_) {}
+
+    // Process first 10 rows for normalized preview
     const previewData = rows.slice(0, 10).map((row, index) => {
-      const extractedData = extractDataFromRow(row, headerMap);
+      const extractedData = extractDataFromRow(row, headerMap, providedFieldMap);
       const validation = validateData(extractedData, FIELD_MAPPING);
       
       return {
@@ -287,7 +355,8 @@ router.post('/preview', upload.single('file'), async (req, res) => {
       success: true,
       data: previewData,
       totalRows: rows.length,
-      headers: headerKeys
+      headers: headerKeys,
+      rawRows: rows.slice(0, 200) // return first 200 raw rows for inline grid
     });
 
   } catch (error) {
@@ -357,6 +426,14 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       headerMap[normalizeString(key)] = key;
     }
 
+    // Optional: mapping provided by client
+    let providedFieldMap = {};
+    try {
+      if (req.body && req.body.mapping) {
+        providedFieldMap = typeof req.body.mapping === 'string' ? JSON.parse(req.body.mapping) : req.body.mapping;
+      }
+    } catch (_) {}
+
     // Process all rows
     const processedData = [];
     const allErrors = [];
@@ -366,7 +443,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const extractedData = extractDataFromRow(row, headerMap);
+      const extractedData = extractDataFromRow(row, headerMap, providedFieldMap);
       const validation = validateData(extractedData, FIELD_MAPPING);
 
       if (validation.errors.length > 0) {

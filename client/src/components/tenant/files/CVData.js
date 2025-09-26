@@ -238,7 +238,9 @@ const CVData = () => {
             CV Data Management
           </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Typography variant="body2" color="text.secondary">Total Records:</Typography>
+          <Typography variant="body1" fontWeight="medium">{total?.toLocaleString?.() || total}</Typography>
           <Button 
             variant="outlined" 
             color="primary"

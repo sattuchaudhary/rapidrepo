@@ -154,11 +154,33 @@ const VehicleDataDetails = () => {
     }
   };
 
-  const handleOpenDetail = (vehicle) => {
+  const handleOpenDetail = async (vehicle) => {
     setDetailError('');
-    setDetailLoading(false);
-    setVehicleDetail(vehicle || null);
     setDetailOpen(true);
+    const vehicleId = vehicle?._id;
+    if (!vehicleId) {
+      setVehicleDetail(vehicle || null);
+      return;
+    }
+    try {
+      setDetailLoading(true);
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`http://localhost:5000/api/tenant/data/vehicle/${vehicleId}` , {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res?.data?.success) {
+        setVehicleDetail(res.data.data || vehicle);
+      } else {
+        setVehicleDetail(vehicle || null);
+        setDetailError(res?.data?.message || 'Failed to load details');
+      }
+    } catch (e) {
+      console.error('Vehicle detail fetch error:', e);
+      setVehicleDetail(vehicle || null);
+      setDetailError(e?.response?.data?.message || 'Failed to load details');
+    } finally {
+      setDetailLoading(false);
+    }
   };
 
   const escapeCsv = (value) => {
@@ -283,7 +305,7 @@ const VehicleDataDetails = () => {
             </Grid>
             <Grid item xs={12} md={3}>
               <Typography variant="body2" color="text.secondary">Total Records</Typography>
-              <Typography variant="body1" fontWeight="medium">{uploadDetails.totalRecords?.toLocaleString()}</Typography>
+              <Typography variant="body1" fontWeight="medium">{total?.toLocaleString?.() || total}</Typography>
             </Grid>
           </Grid>
         </Paper>
@@ -515,11 +537,51 @@ const VehicleDataDetails = () => {
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Upload Date:</Typography>
                 <Typography variant="body1" fontWeight="medium">{uploadDetails?.createdAt ? new Date(uploadDetails.createdAt).toLocaleDateString() : '-'}</Typography>
               </Grid>
+              {/* Dynamic extra fields from raw document */}
+              {vehicleDetail?.raw && (
+                <Grid item xs={12}>
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>Additional Fields</Typography>
+                    <Grid container spacing={1}>
+                      {Object.entries(vehicleDetail.raw)
+                        .filter(([k]) => ![
+                          '_id','__v','registrationNumber','chassisNumber','agreementNumber','bankName','vehicleMake','customerName','address','branchName','status','engineNumber','engineNo','productName','emiAmount','pos','POS','model','vehicleModel','uploadDate','createdAt','bucket','season','seasoning','fileName'
+                        ].includes(k))
+                        .map(([key, value]) => (
+                          <Grid key={key} item xs={12} md={4}>
+                            <Typography variant="body2" color="text.secondary">{key}:</Typography>
+                            <Typography variant="body1" fontWeight="medium">{String(value ?? '-')}</Typography>
+                          </Grid>
+                        ))}
+                    </Grid>
+                  </Box>
+                </Grid>
+              )}
             </Grid>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDetailOpen(false)}>Close</Button>
+          {!!vehicleDetail && (
+            <Box sx={{ display: 'flex', gap: 1, px: 2, py: 1, width: '100%' }}>
+              <Button color="inherit" variant="contained" onClick={async ()=>{
+                try { const token = localStorage.getItem('token'); await axios.put(`http://localhost:5000/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Pending' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Pending' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
+              }}>Pending</Button>
+              <Button color="warning" variant="contained" onClick={async ()=>{
+                try { const token = localStorage.getItem('token'); await axios.put(`http://localhost:5000/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Hold' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Hold' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
+              }}>Hold</Button>
+              <Button color="secondary" variant="contained" onClick={async ()=>{
+                try { const token = localStorage.getItem('token'); await axios.put(`http://localhost:5000/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'In Yard' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'In Yard' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
+              }}>In Yard</Button>
+              <Button color="success" variant="contained" onClick={async ()=>{
+                try { const token = localStorage.getItem('token'); await axios.put(`http://localhost:5000/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Released' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Released' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
+              }}>Release</Button>
+              <Button color="error" variant="contained" onClick={async ()=>{
+                try { const token = localStorage.getItem('token'); await axios.put(`http://localhost:5000/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Cancelled' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Cancelled' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
+              }}>Cancel</Button>
+              <Box sx={{ flex: 1 }} />
+              <Button onClick={() => setDetailOpen(false)}>Close</Button>
+            </Box>
+          )}
         </DialogActions>
       </Dialog>
     </Box>

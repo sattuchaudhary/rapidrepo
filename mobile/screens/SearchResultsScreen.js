@@ -30,6 +30,7 @@ export default function SearchResultsScreen({ route, navigation }) {
   const [hasUserSearched, setHasUserSearched] = useState(false);
   const [suppressClearOnce, setSuppressClearOnce] = useState(false);
   const [agent, setAgent] = useState(null);
+  const [fieldMapping, setFieldMapping] = useState(null);
 
   // Helper: log search click to server with robust error reporting
   const logSearchClick = useCallback(async (vehicle, queryText) => {
@@ -87,6 +88,20 @@ export default function SearchResultsScreen({ route, navigation }) {
       try {
         const stored = await SecureStore.getItemAsync('agent');
         if (stored) setAgent(JSON.parse(stored));
+      } catch (_) {}
+    })();
+  }, []);
+
+  // Load field mapping from server to control which fields show in detail modal
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = await SecureStore.getItemAsync('token');
+        if (!token) return;
+        const res = await axios.get(`${getBaseURL()}/api/tenants/field-mapping`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res?.data?.success) setFieldMapping(res.data.fieldMapping || null);
       } catch (_) {}
     })();
   }, []);
@@ -555,46 +570,74 @@ export default function SearchResultsScreen({ route, navigation }) {
                   <>
                     <View style={styles.detailsSection}>
                       <Text style={styles.sectionTitle}>Vehicle Information</Text>
-
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>👤</Text>
-                        </View>
+                      {(() => {
+                        const fm = fieldMapping || {};
+                        const row = (label, value, key, icon='•') => {
+                          if (key in fm && fm[key] === false) return null;
+                          return (
+                            <View key={label} style={styles.detailRow}>
+                              <View style={styles.detailIcon}><Text style={styles.detailIconText}>{icon}</Text></View>
                         <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Name</Text>
-                          <Text style={styles.detailValue}>{detail.customerName || '—'}</Text>
+                                <Text style={styles.detailLabel}>{label}</Text>
+                                <Text style={styles.detailValue}>{value ?? '—'}</Text>
                         </View>
                       </View>
-
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>🔢</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Vehicle Number</Text>
-                          <Text style={styles.detailValue}>{detail.regNo || '—'}</Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>🔧</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Chassis Number</Text>
-                          <Text style={styles.detailValue}>{detail.chassisNo || '—'}</Text>
-                        </View>
-                      </View>
+                          );
+                        };
+                        return [
+                          row('Customer Name', detail.customerName, 'customerName', '👤'),
+                          row('Registration Number', detail.regNo, 'regNo', '🔢'),
+                          row('Chassis Number', detail.chassisNo, 'chassisNo', '🔧'),
+                          row('Loan Number', detail.loanNo, 'loanNo', '📄'),
+                          row('Bank', detail.bank, 'bank', '🏦'),
+                          row('Make', detail.make, 'make', '🏭'),
+                          row('Engine Number', detail.engineNo, 'engineNo', '⚙️'),
+                          row('EMI Amount', detail.emiAmount, 'emiAmount', '💳'),
+                          row('Address', detail.address, 'address', '📍'),
+                          row('Branch', detail.branch, 'branch', '🏢'),
+                          row('POS', detail.pos, 'pos', '🧾'),
+                          row('Model', detail.model, 'model', '🚘'),
+                          row('Product Name', detail.productName, 'productName', '🏷️'),
+                          row('Bucket', detail.bucket, 'bucket', '🪣'),
+                          row('Season', detail.season, 'season', '📆'),
+                          row('In Yard', detail.inYard ? 'Yes' : 'No', 'inYard', '🏚️'),
+                          row('Yard Name', detail.yardName, 'yardName', '🏷️'),
+                          row('Yard Location', detail.yardLocation, 'yardLocation', '🗺️'),
+                          row('Status', detail.status, 'status', '📌'),
+                          row('Upload Date', detail.uploadDate ? new Date(detail.uploadDate).toLocaleDateString() : '—', 'uploadDate', '🗓️'),
+                          row('File Name', detail.fileName, 'fileName', '📁')
+                        ];
+                      })()}
                     </View>
 
-                    {/* Action: WhatsApp share (limited fields) */}
+                    {/* Action: WhatsApp share (dynamic fields based on mapping) */}
                     <View style={styles.actionSection}>
                       <TouchableOpacity style={styles.whatsBtn} onPress={async () => {
                         try {
-                          const name = detail.customerName || '';
-                          const reg = detail.regNo || '';
-                          const chs = detail.chassisNo || '';
-                          const text = `🚗 *Vehicle Details*\n\n👤 *Name:* ${name}\n🔢 *Vehicle:* ${reg}\n🔧 *Chassis:* ${chs}`;
+                          const fm = fieldMapping || {};
+                          const buildWhatsAppText = () => {
+                            let text = '🚗 *Vehicle Details*\n\n';
+                            
+                            // Always include basic fields
+                            if (detail.customerName) text += `👤 *Name:* ${detail.customerName}\n`;
+                            if (detail.regNo) text += `🔢 *Vehicle:* ${detail.regNo}\n`;
+                            if (detail.chassisNo) text += `🔧 *Chassis:* ${detail.chassisNo}\n`;
+                            
+                            // Add other fields based on mapping
+                            if (fm.loanNo !== false && detail.loanNo) text += `📄 *Loan:* ${detail.loanNo}\n`;
+                            if (fm.bank !== false && detail.bank) text += `🏦 *Bank:* ${detail.bank}\n`;
+                            if (fm.make !== false && detail.make) text += `🏭 *Make:* ${detail.make}\n`;
+                            if (fm.model !== false && detail.model) text += `🚘 *Model:* ${detail.model}\n`;
+                            if (fm.engineNo !== false && detail.engineNo) text += `⚙️ *Engine:* ${detail.engineNo}\n`;
+                            if (fm.emiAmount !== false && detail.emiAmount) text += `💳 *EMI:* ${detail.emiAmount}\n`;
+                            if (fm.address !== false && detail.address) text += `📍 *Address:* ${detail.address}\n`;
+                            if (fm.branch !== false && detail.branch) text += `🏢 *Branch:* ${detail.branch}\n`;
+                            if (fm.status !== false && detail.status) text += `📌 *Status:* ${detail.status}\n`;
+                            
+                            return text;
+                          };
+                          
+                          const text = buildWhatsAppText();
                           const token = await SecureStore.getItemAsync('token');
                           // Fire-and-forget share history
                           axios.post(`${getBaseURL()}/api/history/share`, {
@@ -602,7 +645,7 @@ export default function SearchResultsScreen({ route, navigation }) {
                             vehicleType: (detail.vehicleType || 'other').toString().toLowerCase().includes('two') ? 'two_wheeler' : (detail.vehicleType || '').toString().toLowerCase().includes('four') ? 'four_wheeler' : (detail.vehicleType || '').toString().toLowerCase().includes('cv') ? 'cv' : 'other',
                             channel: 'whatsapp',
                             payloadPreview: text.slice(0, 500),
-                            metadata: { regNo: reg, chassisNo: chs }
+                            metadata: { regNo: detail.regNo || '', chassisNo: detail.chassisNo || '' }
                           }, { headers: { Authorization: `Bearer ${token}` } }).catch(()=>{});
 
                           const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
@@ -616,59 +659,46 @@ export default function SearchResultsScreen({ route, navigation }) {
                   </>
                 ) : (
                   <>
-                    {/* Details Section (full) */}
+                    {/* Details Section (dynamic by field mapping) */}
                     <View style={styles.detailsSection}>
                       <Text style={styles.sectionTitle}>Vehicle Information</Text>
-                      
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>🔢</Text>
-                        </View>
+                      {(() => {
+                        const fm = fieldMapping || {};
+                        const row = (label, value, key, icon='•') => {
+                          if (key in fm && fm[key] === false) return null;
+                          return (
+                            <View key={label} style={styles.detailRow}>
+                              <View style={styles.detailIcon}><Text style={styles.detailIconText}>{icon}</Text></View>
                         <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Registration Number</Text>
-                          <Text style={styles.detailValue}>{detail.regNo || '—'}</Text>
+                                <Text style={styles.detailLabel}>{label}</Text>
+                                <Text style={styles.detailValue}>{value ?? '—'}</Text>
                         </View>
                       </View>
-
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>🔧</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Chassis Number</Text>
-                          <Text style={styles.detailValue}>{detail.chassisNo || '—'}</Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>📄</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Loan Number</Text>
-                          <Text style={styles.detailValue}>{detail.loanNo || '—'}</Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>🏦</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Bank</Text>
-                          <Text style={styles.detailValue}>{detail.bank || '—'}</Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>🏭</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Make</Text>
-                          <Text style={styles.detailValue}>{detail.make || '—'}</Text>
-                        </View>
-                      </View>
+                          );
+                        };
+                        return [
+                          row('Registration Number', detail.regNo, 'regNo', '🔢'),
+                          row('Chassis Number', detail.chassisNo, 'chassisNo', '🔧'),
+                          row('Loan Number', detail.loanNo, 'loanNo', '📄'),
+                          row('Bank', detail.bank, 'bank', '🏦'),
+                          row('Make', detail.make, 'make', '🏭'),
+                          row('Engine Number', detail.engineNo, 'engineNo', '⚙️'),
+                          row('EMI Amount', detail.emiAmount, 'emiAmount', '💳'),
+                          row('Address', detail.address, 'address', '📍'),
+                          row('Branch', detail.branch, 'branch', '🏢'),
+                          row('POS', detail.pos, 'pos', '🧾'),
+                          row('Model', detail.model, 'model', '🚘'),
+                          row('Product Name', detail.productName, 'productName', '🏷️'),
+                          row('Bucket', detail.bucket, 'bucket', '🪣'),
+                          row('Season', detail.season, 'season', '📆'),
+                          row('In Yard', detail.inYard ? 'Yes' : 'No', 'inYard', '🏚️'),
+                          row('Yard Name', detail.yardName, 'yardName', '🏷️'),
+                          row('Yard Location', detail.yardLocation, 'yardLocation', '🗺️'),
+                          row('Status', detail.status, 'status', '📌'),
+                          row('Upload Date', detail.uploadDate ? new Date(detail.uploadDate).toLocaleDateString() : '—', 'uploadDate', '🗓️'),
+                          row('File Name', detail.fileName, 'fileName', '📁')
+                        ];
+                      })()}
                     </View>
 
                     {/* Customer Section */}

@@ -23,7 +23,9 @@ import {
   Chip,
   CheckCircle,
   Alert,
-  CircularProgress
+  CircularProgress,
+  TextField,
+  InputAdornment
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -46,7 +48,8 @@ import {
   Phone as PhoneIcon,
   DirectionsCar as CarIcon,
   TwoWheeler as MotorcycleIcon,
-  LocalShipping as TruckIcon
+  LocalShipping as TruckIcon,
+  Search as SearchIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
@@ -63,11 +66,14 @@ import CVData from './files/CVData';
 import VehicleDataDetails from './files/VehicleDataDetails';
 import UserStatistics from './UserStatistics';
 import Notifications from './Notifications';
+import SearchResults from './SearchResults';
+import TenantProfile from './TenantProfile';
 
 const TenantAdminPanel = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { logout, user } = useAuth();
+  const [headerSearch, setHeaderSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState({
     userManagement: true,
@@ -179,6 +185,11 @@ const TenantAdminPanel = () => {
       icon: <SettingsIcon />,
       path: '/tenant/settings',
       expandable: true
+    },
+    {
+      text: 'Profile',
+      icon: <SettingsIcon />,
+      path: '/tenant/profile'
     }
   ];
 
@@ -271,7 +282,35 @@ const TenantAdminPanel = () => {
           </Box>
 
           {/* Center Section - Search and Notifications */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, justifyContent: 'flex-end' }}>
+            <Box sx={{ minWidth: 320, maxWidth: 420, width: '100%' }}>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Search reg no / chassis / loan (e.g., 1234)"
+                value={headerSearch}
+                onChange={(e) => setHeaderSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const q = (headerSearch || '').trim();
+                    if (q) {
+                      navigate(`/tenant/search?q=${encodeURIComponent(q)}`);
+                    }
+                  }
+                }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon sx={{ color: 'grey.500' }} />
+                    </InputAdornment>
+                  ),
+                  sx: {
+                    bgcolor: 'white',
+                    borderRadius: 1
+                  }
+                }}
+              />
+            </Box>
             <Typography variant="body2" sx={{ color: 'white' }}>
               hello, {user?.email || 'user@example.com'}
             </Typography>
@@ -937,6 +976,12 @@ const TenantAdminPanel = () => {
             {location.pathname === '/tenant/notifications' && (
               <Notifications />
             )}
+          {location.pathname.startsWith('/tenant/search') && (
+            <SearchResults />
+          )}
+          {location.pathname === '/tenant/profile' && (
+            <TenantProfile />
+          )}
           </Box>
         </Box>
       </Box>

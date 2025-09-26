@@ -853,6 +853,7 @@ import {
   AccordionSummary,
   AccordionDetails
 } from '@mui/material';
+import Autocomplete from '@mui/material/Autocomplete';
 import {
   CloudUpload as UploadIcon,
   FileDownload as DownloadIcon,
@@ -876,6 +877,7 @@ import {
   Description as FileIcon,
   Timeline as ProgressIcon
 } from '@mui/icons-material';
+import SaveIcon from '@mui/icons-material/Save';
 import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import { toast } from 'react-toastify';
@@ -900,6 +902,21 @@ const MobileUpload = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [tabValue, setTabValue] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [headers, setHeaders] = useState([]);
+  const [headerMapping, setHeaderMapping] = useState({});
+  const [loadingMapping, setLoadingMapping] = useState(false);
+  const [rawRows, setRawRows] = useState([]);
+  const [columnMapping, setColumnMapping] = useState({}); // fileColumn -> standardField
+
+  const standardFields = [
+    'location','bankName','agreementNumber','customerName','vehicleMake','registrationNumber','engineNumber','chassisNumber','emiAmount','pos','bucketStatus','address','branchName','firstConfirmedName','firstConfirmerPhone','secondConfirmedName','secondConfirmerPhone','thirdConfirmerName','thirdConfirmerPhone','zone','areaOffice','region','allocation','vehicleModel','productName'
+  ];
+
+  const allMapped = React.useMemo(() => {
+    if (!headers.length) return false;
+    // Unlock when every visible file column has a mapping selected
+    return headers.every(h => !!columnMapping[h]);
+  }, [columnMapping, headers]);
 
   // Load banks on component mount
   useEffect(() => {
@@ -1007,6 +1024,13 @@ const MobileUpload = () => {
       formData.append('bankId', selectedBank);
       formData.append('bankName', banks.find(b => String(b._id) === String(selectedBank))?.name || '');
       formData.append('file', file);
+      // Convert header dropdown selections to std->file mapping before send
+      const stdToFileFromColumns = {};
+      Object.entries(columnMapping).forEach(([fileCol, std]) => { if (std) stdToFileFromColumns[std] = fileCol; });
+      const finalMapping = Object.keys(stdToFileFromColumns).length ? stdToFileFromColumns : headerMapping;
+      if (Object.keys(finalMapping).length > 0) {
+        formData.append('mapping', JSON.stringify(finalMapping));
+      }
 
       const token = localStorage.getItem('token');
       const response = await axios.post('http://localhost:5000/api/tenant/mobile/upload', formData, {
@@ -1050,6 +1074,9 @@ const MobileUpload = () => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('preview', 'true');
+      if (Object.keys(headerMapping).length > 0) {
+        formData.append('mapping', JSON.stringify(headerMapping));
+      }
 
       const token = localStorage.getItem('token');
       const response = await axios.post('http://localhost:5000/api/tenant/mobile/preview', formData, {
@@ -1061,7 +1088,19 @@ const MobileUpload = () => {
 
       if (response.data.success) {
         setPreviewData(response.data.data);
-        setShowPreview(true);
+        setHeaders(response.data.headers || []);
+        setRawRows(response.data.rawRows || []);
+        // Inline grid UX: keep dialog closed; show table below instead
+        setShowPreview(false);
+        toast.success('File loaded');
+        // Initialize column mapping from existing std->file mapping if present
+        if (Object.keys(headerMapping).length > 0 && (response.data.headers || []).length) {
+          const inverted = {};
+          Object.entries(headerMapping).forEach(([std, fileCol]) => { inverted[fileCol] = std; });
+          setColumnMapping(inverted);
+        } else {
+          setColumnMapping({});
+        }
       }
     } catch (error) {
       console.error('Preview error:', error);
@@ -1104,38 +1143,21 @@ const MobileUpload = () => {
 
   const steps = [
     'Select Vehicle Type & Bank',
-    'Upload File',
+    'Upload & Map Headers',
     'Review & Confirm',
     'Upload Complete'
   ];
 
   return (
-    <Box sx={{ p: 3, bgcolor: 'grey.50', minHeight: '100vh' }}>
-      {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-          <UploadIcon sx={{ mr: 2, verticalAlign: 'middle' }} />
-          Mobile Upload
-        </Typography>
-        <Typography variant="subtitle1" color="text.secondary">
-          Upload vehicle data files in Excel or CSV format
-        </Typography>
-      </Box>
+    <Box sx={{ p: 1.5, bgcolor: 'grey.50', minHeight: '100vh' }}>
 
       {/* Main Content */}
       <Grid container spacing={3}>
         {/* Left Side - Upload Form */}
         <Grid item xs={12} md={8}>
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              {/* Progress Stepper */}
-              <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
-                {steps.map((label, index) => (
-                  <Step key={label}>
-                    <StepLabel>{label}</StepLabel>
-                  </Step>
-                ))}
-              </Stepper>
+          <Card sx={{ mb: 1 }}>
+            <CardContent sx={{ py: 1, px: 2 }}>
+              {/* Compact layout - no stepper */}
 
               {/* Step 1: Vehicle Type & Bank Selection */}
               {activeStep === 0 && (
@@ -1232,50 +1254,19 @@ const MobileUpload = () => {
                 </Box>
               )}
 
-              {/* Step 2: File Upload */}
+              {/* Step 2: File Upload + Header Mapping */}
               {activeStep === 1 && (
                 <Box>
-                  <Typography variant="h6" gutterBottom>
-                    Step 2: Upload File
-                  </Typography>
-
-                  <Box
-                    sx={{
-                      border: `2px dashed ${isDragOver ? 'primary.main' : '#ccc'}`,
-                      borderRadius: 2,
-                      p: 4,
-                      textAlign: 'center',
-                      bgcolor: isDragOver ? 'primary.50' : 'grey.50',
-                      mb: 3,
-                      cursor: 'pointer',
-                      transition: 'all 0.3s ease',
-                      '&:hover': {
-                        borderColor: 'primary.main',
-                        bgcolor: 'primary.50'
-                      }
-                    }}
-                    onClick={() => document.getElementById('file-input').click()}
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                  >
-                    <UploadIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                    <Typography variant="h6" gutterBottom>
-                      {file ? file.name : (isDragOver ? 'Drop file here' : 'Click to Choose File or Drag & Drop')}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      Supported formats: Excel (.xlsx, .xls), CSV (.csv)
-                    </Typography>
-                    {file && (
-                      <Typography variant="body2" color="success.main" sx={{ mb: 2 }}>
-                        ✓ File selected: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
-                      </Typography>
-                    )}
+                  {/* Controls row - appear progressively */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>
+                    {/* Vehicle type and bank are selected on previous step; ensure file input only after both are chosen */}
+                    {vehicleType && selectedBank ? (
+                      <>
                     <Button
                       variant="contained"
                       component="label"
+                          size="small"
                       startIcon={<UploadIcon />}
-                      onClick={(e) => e.stopPropagation()}
                     >
               Choose File
                       <input
@@ -1286,36 +1277,21 @@ const MobileUpload = () => {
                         onChange={handleFileSelect}
                       />
                     </Button>
-                  </Box>
-
+                        <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                          {file ? `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)` : 'Supported: .xlsx .xls .csv'}
+                        </Typography>
                   {file && (
-                    <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                      <Button
-                        variant="outlined"
-                        onClick={handlePreview}
-                        startIcon={<ViewIcon />}
-                      >
-                        Preview Data
-                      </Button>
-                      <Button
-                        variant="contained"
-                        onClick={handleUpload}
-                        disabled={isUploading}
-                        startIcon={<UploadIcon />}
-                      >
-                        Upload File
-                      </Button>
-                    </Box>
-                  )}
-
-                  <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
-                    <Button
-                      variant="outlined"
-                      onClick={() => setActiveStep(0)}
-                    >
-                      Back
-                    </Button>
+                          <>
+                            <Button variant="contained" size="small" onClick={handlePreview}>Load File</Button>
+                            <Button variant="contained" size="small" onClick={handleUpload} disabled={isUploading || !allMapped}>Upload File</Button>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">Select vehicle type and bank first</Typography>
+                    )}
                   </Box>
+                  <Typography variant="caption" color="text.secondary">Step: 1 Select • 2 Load • 3 Map • 4 Upload</Typography>
                 </Box>
               )}
 
@@ -1415,142 +1391,46 @@ const MobileUpload = () => {
           </Grid>
 
         {/* Right Side - Info & Stats */}
-        <Grid item xs={12} md={4}>
-          {/* Upload Guidelines */}
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                <InfoIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                Upload Guidelines
-              </Typography>
-              <List dense>
-                <ListItem>
-                  <ListItemIcon>
-                    <SuccessIcon sx={{ color: 'success.main' }} />
-                  </ListItemIcon>
-                  <ListItemText primary="Use provided Excel templates" />
-                </ListItem>
-                <ListItem>
-                  <ListItemIcon>
-                    <SuccessIcon sx={{ color: 'success.main' }} />
-                  </ListItemIcon>
-                  <ListItemText primary="Maximum file size: 40MB" />
-                </ListItem>
-                <ListItem>
-                  <ListItemIcon>
-                    <SuccessIcon sx={{ color: 'success.main' }} />
-                  </ListItemIcon>
-                  <ListItemText primary="Supported formats: .xlsx, .xls, .csv" />
-                </ListItem>
-                <ListItem>
-                  <ListItemIcon>
-                    <SuccessIcon sx={{ color: 'success.main' }} />
-                  </ListItemIcon>
-                  <ListItemText primary="Required fields must be filled" />
-                </ListItem>
-              </List>
-            </CardContent>
-          </Card>
-
-          {/* Recent Uploads */}
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                <HistoryIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                Recent Uploads
-              </Typography>
-              {uploadHistory.slice(0, 5).map((upload, index) => (
-                <Box key={index} sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <Avatar sx={{ mr: 2, bgcolor: 'primary.main' }}>
-                    {getVehicleIcon(upload.vehicleType)}
-                  </Avatar>
-                  <Box sx={{ flex: 1 }}>
-                    <Typography variant="body2" fontWeight="bold">
-                      {upload.fileName}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(upload.uploadDate).toLocaleDateString()}
-                    </Typography>
-                  </Box>
-                  <Chip
-                    label={upload.status}
-                    color={getStatusColor(upload.status)}
-                    size="small"
-                  />
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-        </Grid>
+        <Grid item xs={12} md={4}></Grid>
       </Grid>
 
-      {/* Data Preview Dialog */}
-      <Dialog open={showPreview} onClose={() => setShowPreview(false)} maxWidth="xl" fullWidth>
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <ViewIcon />
-            Data Preview
-            <Chip 
-              label={`${previewData.length} records`} 
-              color="primary" 
-              size="small" 
-            />
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <TableContainer sx={{ maxHeight: 600 }}>
+      {/* Inline Header mapping + Raw grid */}
+      {activeStep === 1 && rawRows.length > 0 && (
+        <Box sx={{ mt: 2 }}>
+          <Paper>
+            <TableContainer sx={{ maxHeight: 500 }}>
             <Table stickyHeader>
               <TableHead>
-                <TableRow>
-                  <TableCell>Registration Number</TableCell>
-                  <TableCell>Customer Name</TableCell>
-                  <TableCell>Vehicle Make</TableCell>
-                  <TableCell>Bank Name</TableCell>
-                  <TableCell>Status</TableCell>
-                </TableRow>
+                  <TableRow>
+                    {headers.map(h => (
+                      <TableCell key={h}>
+                        <Autocomplete
+                          size="small"
+                          options={standardFields}
+                          value={columnMapping[h] || ''}
+                          onChange={(e, val) => setColumnMapping({ ...columnMapping, [h]: val || '' })}
+                          renderInput={(params) => (
+                            <TextField {...params} label="Map to" variant="outlined" />
+                          )}
+                        />
+                      </TableCell>
+                    ))}
+                  </TableRow>
               </TableHead>
               <TableBody>
-                {previewData.map((row, index) => (
-                  <TableRow key={index} hover>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight="bold">
-                        {row.registrationNumber}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>{row.customerName}</TableCell>
-                    <TableCell>
-                      <Chip 
-                        label={row.vehicleMake} 
-                        color="primary" 
-                        size="small" 
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Chip 
-                        label={row.bankName} 
-                        color="secondary" 
-                        size="small" 
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={row.status || 'Valid'}
-                        color={row.status === 'Error' ? 'error' : 'success'}
-                        size="small"
-                      />
-                    </TableCell>
+                  {rawRows.map((r, idx) => (
+                    <TableRow key={idx}>
+                      {headers.map(h => (
+                        <TableCell key={h}>{String(r[h] ?? '')}</TableCell>
+                      ))}
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </TableContainer>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowPreview(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+          </Paper>
+        </Box>
+      )}
 
       {/* Upload History Dialog */}
       <Dialog open={showHistory} onClose={() => setShowHistory(false)} maxWidth="md" fullWidth>

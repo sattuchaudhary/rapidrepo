@@ -41,8 +41,10 @@ import {
   Map as MapIcon,
   TrackChanges as TrackIcon
 } from '@mui/icons-material';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Checkbox from '@mui/material/Checkbox';
+import axios from 'axios';
 
 
 const RepoAgentList = () => {
@@ -81,6 +83,32 @@ const RepoAgentList = () => {
   });
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  
+  // Data Mapping Dialog State
+  const [openMappingDialog, setOpenMappingDialog] = useState(false);
+  const [fieldMapping, setFieldMapping] = useState({
+    regNo: true,
+    chassisNo: true,
+    loanNo: true,
+    bank: true,
+    make: true,
+    customerName: true,
+    engineNo: true,
+    emiAmount: true,
+    address: true,
+    branch: true,
+    pos: true,
+    model: true,
+    productName: true,
+    bucket: true,
+    season: true,
+    inYard: false,
+    yardName: false,
+    yardLocation: false,
+    status: true,
+    uploadDate: false,
+    fileName: false
+  });
 
   useEffect(() => {
     fetchRepoAgents();
@@ -348,6 +376,7 @@ const RepoAgentList = () => {
         <Button
           variant="contained"
           startIcon={<MapIcon />}
+          onClick={() => setOpenMappingDialog(true)}
           sx={{ 
             borderRadius: 2,
             bgcolor: '#424242',
@@ -852,6 +881,138 @@ const RepoAgentList = () => {
             }}
           >
             {submitting ? <CircularProgress size={20} /> : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Data Mapping Dialog */}
+      <Dialog open={openMappingDialog} onClose={() => setOpenMappingDialog(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Mobile App Field Configuration</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Select which fields to show in the mobile app's search result detail modal for repo agents.
+          </Typography>
+          
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <Typography variant="h6" gutterBottom>Basic Information</Typography>
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.regNo} onChange={(e) => setFieldMapping({...fieldMapping, regNo: e.target.checked})} />} 
+                label="Registration Number" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.chassisNo} onChange={(e) => setFieldMapping({...fieldMapping, chassisNo: e.target.checked})} />} 
+                label="Chassis Number" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.loanNo} onChange={(e) => setFieldMapping({...fieldMapping, loanNo: e.target.checked})} />} 
+                label="Loan Number" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.bank} onChange={(e) => setFieldMapping({...fieldMapping, bank: e.target.checked})} />} 
+                label="Bank Name" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.make} onChange={(e) => setFieldMapping({...fieldMapping, make: e.target.checked})} />} 
+                label="Vehicle Make" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.customerName} onChange={(e) => setFieldMapping({...fieldMapping, customerName: e.target.checked})} />} 
+                label="Customer Name" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.engineNo} onChange={(e) => setFieldMapping({...fieldMapping, engineNo: e.target.checked})} />} 
+                label="Engine Number" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.model} onChange={(e) => setFieldMapping({...fieldMapping, model: e.target.checked})} />} 
+                label="Vehicle Model" 
+              />
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <Typography variant="h6" gutterBottom>Financial & Location</Typography>
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.emiAmount} onChange={(e) => setFieldMapping({...fieldMapping, emiAmount: e.target.checked})} />} 
+                label="EMI Amount" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.address} onChange={(e) => setFieldMapping({...fieldMapping, address: e.target.checked})} />} 
+                label="Address" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.branch} onChange={(e) => setFieldMapping({...fieldMapping, branch: e.target.checked})} />} 
+                label="Branch" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.pos} onChange={(e) => setFieldMapping({...fieldMapping, pos: e.target.checked})} />} 
+                label="POS" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.productName} onChange={(e) => setFieldMapping({...fieldMapping, productName: e.target.checked})} />} 
+                label="Product Name" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.bucket} onChange={(e) => setFieldMapping({...fieldMapping, bucket: e.target.checked})} />} 
+                label="Bucket" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.season} onChange={(e) => setFieldMapping({...fieldMapping, season: e.target.checked})} />} 
+                label="Season" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.status} onChange={(e) => setFieldMapping({...fieldMapping, status: e.target.checked})} />} 
+                label="Status" 
+              />
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <Typography variant="h6" gutterBottom>Yard Information</Typography>
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.inYard} onChange={(e) => setFieldMapping({...fieldMapping, inYard: e.target.checked})} />} 
+                label="In Yard" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.yardName} onChange={(e) => setFieldMapping({...fieldMapping, yardName: e.target.checked})} />} 
+                label="Yard Name" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.yardLocation} onChange={(e) => setFieldMapping({...fieldMapping, yardLocation: e.target.checked})} />} 
+                label="Yard Location" 
+              />
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <Typography variant="h6" gutterBottom>System Information</Typography>
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.uploadDate} onChange={(e) => setFieldMapping({...fieldMapping, uploadDate: e.target.checked})} />} 
+                label="Upload Date" 
+              />
+              <FormControlLabel 
+                control={<Checkbox checked={fieldMapping.fileName} onChange={(e) => setFieldMapping({...fieldMapping, fileName: e.target.checked})} />} 
+                label="File Name" 
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenMappingDialog(false)}>Cancel</Button>
+          <Button 
+            variant="contained" 
+            onClick={async () => {
+              try {
+                const token = localStorage.getItem('token');
+                await axios.post('http://localhost:5000/api/tenants/field-mapping', fieldMapping, {
+                  headers: { Authorization: `Bearer ${token}` }
+                });
+                setOpenMappingDialog(false);
+                setSuccess('Field mapping configuration saved successfully!');
+              } catch (error) {
+                setError('Failed to save field mapping configuration');
+              }
+            }}
+          >
+            Save Configuration
           </Button>
         </DialogActions>
       </Dialog>

@@ -352,6 +352,7 @@ router.get('/vehicle/:id', authenticateUnifiedToken, async (req, res) => {
       try {
         const doc = await Model.findById(id).lean();
         if (doc) {
+          // normalized view + include entire raw document so frontend can render additional fields
           return res.json({ success: true, data: { 
             _id: doc._id,
             vehicleType: col.includes('two') ? 'TwoWheeler' : col.includes('four') ? 'FourWheeler' : 'Commercial',
@@ -362,8 +363,21 @@ router.get('/vehicle/:id', authenticateUnifiedToken, async (req, res) => {
             make: doc.vehicleMake || '',
             customerName: doc.customerName || '',
             address: doc.address || '',
-            branch: doc.branchName || '',
-            status: doc.status || 'Pending'
+            branch: doc.branchName || doc.branch || '',
+            status: doc.status || 'Pending',
+            engineNo: doc.engineNumber || doc.engineNo || '',
+            productName: doc.productName || '',
+            emiAmount: doc.emiAmount || '',
+            pos: doc.pos || doc.POS || '',
+            model: doc.model || doc.vehicleModel || '',
+            uploadDate: doc.uploadDate || doc.createdAt || null,
+            bucket: doc.bucket || '',
+            season: doc.season || doc.seasoning || '',
+            inYard: doc.inYard || doc.inyard || doc.yardStatus || '',
+            yardName: doc.yardName || doc.yard || '',
+            yardLocation: doc.yardLocation || doc.yardAddress || '',
+            fileName: doc.fileName || '',
+            raw: doc
           }});
         }
       } catch (_) {}
@@ -372,6 +386,73 @@ router.get('/vehicle/:id', authenticateUnifiedToken, async (req, res) => {
   } catch (error) {
     console.error('Vehicle detail error:', error);
     return res.status(500).json({ success: false, message: 'Failed to get vehicle details' });
+  }
+});
+
+// Generic vehicle status update
+router.put('/vehicle/:id/status', authenticateUnifiedToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body || {};
+    const allowed = ['Pending','Hold','In Yard','Released','Cancelled','pending','hold','inYard','released','cancelled'];
+    if (!status || !allowed.includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status' });
+    }
+
+    const tenantId = req.user?.tenantId;
+    const tenantName = req.user?.tenantName;
+    if (!tenantId && !tenantName) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    let tenant = null;
+    if (tenantId) tenant = await Tenant.findById(tenantId);
+    if (!tenant && tenantName) tenant = await Tenant.findOne({ name: tenantName });
+    if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
+
+    const conn = await getTenantDB(tenant.name);
+    const collections = ['two_wheeler_data', 'four_wheeler_data', 'commercial_data'];
+    for (const col of collections) {
+      const Model = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), col);
+      try {
+        const updated = await Model.findByIdAndUpdate(id, { $set: { status } }, { new: true });
+        if (updated) {
+          return res.json({ success: true, message: 'Status updated', data: { _id: updated._id, status: updated.status } });
+        }
+      } catch (_) {}
+    }
+    return res.status(404).json({ success: false, message: 'Vehicle not found' });
+  } catch (error) {
+    console.error('Vehicle status update error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update status' });
+  }
+});
+
+// Delete single vehicle by id (from any collection)
+router.delete('/vehicle/:id', authenticateUnifiedToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const tenantId = req.user?.tenantId;
+    const tenantName = req.user?.tenantName;
+    if (!tenantId && !tenantName) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    let tenant = null;
+    if (tenantId) tenant = await Tenant.findById(tenantId);
+    if (!tenant && tenantName) tenant = await Tenant.findOne({ name: tenantName });
+    if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
+
+    const conn = await getTenantDB(tenant.name);
+    const collections = ['two_wheeler_data', 'four_wheeler_data', 'commercial_data'];
+    for (const col of collections) {
+      const Model = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), col);
+      try {
+        const existing = await Model.findById(id).lean();
+        if (existing) {
+          const del = await Model.deleteOne({ _id: id });
+          return res.json({ success: true, message: 'Vehicle deleted', deletedCount: del?.deletedCount || 0 });
+        }
+      } catch (_) {}
+    }
+    return res.status(404).json({ success: false, message: 'Vehicle not found' });
+  } catch (error) {
+    console.error('Vehicle delete error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete vehicle' });
   }
 });
 
@@ -948,6 +1029,19 @@ router.get('/two-wheeler', async (req, res) => {
         console.log('Could not fetch user names:', err.message);
       }
     }
+    
+    // If no users found, try to get from tenant users
+    if (Object.keys(users).length === 0) {
+      try {
+        const User = require('../models/User');
+        const tenantUsers = await User.find({ tenantId: tenant._id }, { firstName: 1, lastName: 1, email: 1 }).lean();
+        tenantUsers.forEach(user => {
+          users[user._id] = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email || 'Unknown User';
+        });
+      } catch (err) {
+        console.log('Could not fetch tenant users:', err.message);
+      }
+    }
 
     const formattedData = groups.map((g, index) => {
       const upload = uploadsByKey[g._id];
@@ -958,7 +1052,7 @@ router.get('/two-wheeler', async (req, res) => {
         _id: encodeURIComponent(g._id),
         bankName: displayBank,
         fileName: g._id || 'N/A',
-        user: upload && users[upload.uploadedBy] ? users[upload.uploadedBy] : 'Shree Parking',
+        user: upload && users[upload.uploadedBy] ? users[upload.uploadedBy] : tenant.name || 'Unknown User',
         uploadDate: g.lastUploadDate ? new Date(g.lastUploadDate).toLocaleString('en-GB', {
           day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'
         }) : 'N/A',
@@ -1174,6 +1268,19 @@ router.get('/four-wheeler', async (req, res) => {
         console.log('Could not fetch user names:', err.message);
       }
     }
+    
+    // If no users found, try to get from tenant users
+    if (Object.keys(users).length === 0) {
+      try {
+        const User = require('../models/User');
+        const tenantUsers = await User.find({ tenantId: tenant._id }, { firstName: 1, lastName: 1, email: 1 }).lean();
+        tenantUsers.forEach(user => {
+          users[user._id] = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email || 'Unknown User';
+        });
+      } catch (err) {
+        console.log('Could not fetch tenant users:', err.message);
+      }
+    }
 
     const formattedData = groups.map((g, index) => {
       const upload = uploadsByKey[g._id];
@@ -1184,7 +1291,7 @@ router.get('/four-wheeler', async (req, res) => {
         _id: encodeURIComponent(g._id),
         bankName: displayBank,
         fileName: g._id || 'N/A',
-        user: upload && users[upload.uploadedBy] ? users[upload.uploadedBy] : 'Shree Parking',
+        user: upload && users[upload.uploadedBy] ? users[upload.uploadedBy] : tenant.name || 'Unknown User',
         uploadDate: g.lastUploadDate ? new Date(g.lastUploadDate).toLocaleString('en-GB', {
           day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'
         }) : 'N/A',
@@ -1274,6 +1381,35 @@ router.get('/cv', async (req, res) => {
         console.log('Could not fetch user names:', err.message);
       }
     }
+    
+    // If no users found, try to get from tenant users
+    if (Object.keys(users).length === 0) {
+      try {
+        const User = require('../models/User');
+        const tenantUsers = await User.find({ tenantId: tenant._id }, { firstName: 1, lastName: 1, email: 1 }).lean();
+        tenantUsers.forEach(user => {
+          users[user._id] = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email || 'Unknown User';
+        });
+      } catch (err) {
+        console.log('Could not fetch tenant users:', err.message);
+      }
+    }
+
+    // Get actual vehicle counts for each file from commercial_data collection
+    const VehicleModel = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), 'commercial_data');
+    const fileCounts = {};
+    
+    for (const upload of uploads) {
+      if (upload.fileName) {
+        try {
+          const fileNameRegex = new RegExp('^\\s*' + escapeRegexSafe(upload.fileName.trim()) + '\\s*$', 'i');
+          const count = await VehicleModel.countDocuments({ fileName: { $regex: fileNameRegex } });
+          fileCounts[upload.fileName] = count;
+        } catch (err) {
+          fileCounts[upload.fileName] = 0;
+        }
+      }
+    }
 
     // Format data for frontend
     const formattedData = uploads.map((upload, index) => ({
@@ -1281,7 +1417,7 @@ router.get('/cv', async (req, res) => {
       _id: upload._id,
       bankName: upload.bankName || 'N/A',
       fileName: upload.fileName || 'N/A',
-      user: users[upload.uploadedBy] || 'Shree Parking',
+      user: users[upload.uploadedBy] || tenant.name || 'Unknown User',
       uploadDate: upload.uploadDate ? new Date(upload.uploadDate).toLocaleString('en-GB', {
         day: '2-digit',
         month: '2-digit',
@@ -1290,7 +1426,7 @@ router.get('/cv', async (req, res) => {
         minute: '2-digit',
         second: '2-digit'
       }) : 'N/A',
-      total: upload.totalRecords || 0,
+      total: fileCounts[upload.fileName] || 0,
       hold: 0,
       inYard: 0,
       release: 0,
@@ -1363,7 +1499,12 @@ router.get('/file/:id', async (req, res) => {
           
           if (upload) {
             uploadDetails = upload;
-            dataCollection = collection.replace('_uploads', '_data');
+            const uploadToDataMap = {
+              'two_wheeler_data_uploads': 'two_wheeler_data',
+              'four_wheeler_data_uploads': 'four_wheeler_data',
+              'commercial_data_uploads': 'commercial_data'
+            };
+            dataCollection = uploadToDataMap[collection] || null;
             console.log('Found upload record:', {
               fileName: upload.fileName,
               vehicleType: upload.vehicleType,
@@ -1397,6 +1538,7 @@ router.get('/file/:id', async (req, res) => {
       // Prefer two_wheeler_data; fall back to others only if zero results
       const orderedCollections = ['two_wheeler_data', ...presentCollections.filter(c => c !== 'two_wheeler_data')];
       let VehicleModel = null;
+      let selectedCollection = null;
       // helper existed at module scope: escapeRegexSafe
       // match ignoring leading/trailing whitespace and case
       const fileNameRegex = new RegExp('^\\s*' + escapeRegexSafe(decodedFileName) + '\\s*$', 'i');
@@ -1404,7 +1546,7 @@ router.get('/file/:id', async (req, res) => {
       for (const col of orderedCollections) {
         const M = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), col);
         const probeCount = await M.countDocuments({ fileName: fileNameRegex });
-        if (probeCount > 0) { VehicleModel = M; break; }
+        if (probeCount > 0) { VehicleModel = M; selectedCollection = col; break; }
       }
       if (!VehicleModel) {
         return res.status(404).json({ success: false, message: 'File data not found' });
@@ -1459,9 +1601,24 @@ router.get('/file/:id', async (req, res) => {
         productName: v.productName || 'N/A',
         location: v.location || 'N/A'
       }));
+      // Derive vehicleType from the collection we matched and bankName from the first row if available
+      const derivedVehicleType = selectedCollection?.includes('two')
+        ? 'TwoWheeler'
+        : selectedCollection?.includes('four')
+          ? 'FourWheeler'
+          : selectedCollection?.includes('commercial')
+            ? 'Commercial'
+            : 'Unknown';
+      const firstRowBank = vehicles?.[0]?.bankName || vehicles?.[0]?.bank || '';
+
       return res.json({ success: true, data: formattedData, uploadDetails: {
-        fileName: decodedFileName, bankName: bank || 'N/A', vehicleType: 'Unknown', uploadDate: null,
-        totalRecords: total, processedRecords: total, failedRecords: 0
+        fileName: decodedFileName,
+        bankName: (bank || firstRowBank || 'N/A'),
+        vehicleType: derivedVehicleType,
+        uploadDate: null,
+        totalRecords: total,
+        processedRecords: total,
+        failedRecords: 0
       }, pagination: { total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / parseInt(limit)) } });
     }
     
@@ -1600,6 +1757,98 @@ router.get('/file/:id', async (req, res) => {
       message: 'Failed to fetch file data',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
+  }
+});
+
+// Delete an uploaded file and all its vehicle rows
+router.delete('/file/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const tenant = await Tenant.findById(req.user.tenantId);
+    if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
+
+    const conn = await getTenantDB(tenant.name);
+    const uploadCollections = ['two_wheeler_data_uploads', 'four_wheeler_data_uploads', 'commercial_data_uploads'];
+    let uploadDetails = null;
+    let dataCollection = null;
+
+    // Find the upload by id across upload collections
+    for (const collection of uploadCollections) {
+      try {
+        const UploadModel = conn.model('Upload', new mongoose.Schema({}, { strict: false }), collection);
+        const rec = mongoose.isValidObjectId(id) ? await UploadModel.findById(id).lean() : null;
+        if (rec) {
+          uploadDetails = rec;
+          const uploadToDataMap = {
+            'two_wheeler_data_uploads': 'two_wheeler_data',
+            'four_wheeler_data_uploads': 'four_wheeler_data',
+            'commercial_data_uploads': 'commercial_data'
+          };
+          dataCollection = uploadToDataMap[collection] || null;
+          // delete upload record
+          await UploadModel.deleteOne({ _id: id });
+          break;
+        }
+      } catch (_) {}
+    }
+
+    // If upload not found by ObjectId, treat :id as encoded filename and delete by filename across collections
+    if (!uploadDetails || !dataCollection) {
+      let decodedFileName = decodeURIComponent(id || '');
+      try {
+        if (/%[0-9a-fA-F]{2}/.test(decodedFileName)) {
+          decodedFileName = decodeURIComponent(decodedFileName);
+        }
+      } catch (_) {}
+      decodedFileName = (decodedFileName || '').trim();
+      if (!decodedFileName) {
+        return res.status(404).json({ success: false, message: 'Upload not found' });
+      }
+
+      const regex = new RegExp('^\\s*' + escapeRegexSafe(decodedFileName) + '\\s*$', 'i');
+      const dataCollections = ['two_wheeler_data', 'four_wheeler_data', 'commercial_data'];
+
+      let totalDeletedData = 0;
+      for (const col of dataCollections) {
+        try {
+          const exists = await conn.db.listCollections({ name: col }).hasNext();
+          if (!exists) continue;
+          const M = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), col);
+          const delRes = await M.deleteMany({ fileName: { $regex: regex } });
+          totalDeletedData += delRes?.deletedCount || 0;
+        } catch (_) {}
+      }
+
+      let totalDeletedUploads = 0;
+      for (const ucol of uploadCollections) {
+        try {
+          const exists = await conn.db.listCollections({ name: ucol }).hasNext();
+          if (!exists) continue;
+          const U = conn.model('Upload', new mongoose.Schema({}, { strict: false }), ucol);
+          const delUp = await U.deleteMany({ fileName: { $regex: regex } });
+          totalDeletedUploads += delUp?.deletedCount || 0;
+        } catch (_) {}
+      }
+
+      if (totalDeletedData === 0 && totalDeletedUploads === 0) {
+        return res.status(404).json({ success: false, message: 'Upload not found' });
+      }
+      return res.json({ success: true, message: 'File and data deleted', deletedData: totalDeletedData, deletedUploads: totalDeletedUploads });
+    }
+
+    // Delete all rows for this fileName in the resolved data collection
+    const VehicleModel = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), dataCollection);
+    const escaped = String(uploadDetails.fileName || '').trim();
+    if (!escaped) {
+      return res.json({ success: true, message: 'Upload deleted (no data rows matched by filename)' });
+    }
+    const regex = new RegExp('^\\s*' + escapeRegexSafe(escaped) + '\\s*$', 'i');
+    const result = await VehicleModel.deleteMany({ fileName: { $regex: regex } });
+
+    return res.json({ success: true, message: 'File and data deleted', deleted: result?.deletedCount || 0 });
+  } catch (error) {
+    console.error('Delete file error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete file' });
   }
 });
 
