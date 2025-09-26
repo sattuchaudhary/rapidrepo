@@ -16,9 +16,9 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 1024 * 1024 * 1024, // 1GB limit (effectively unlimited)
+    fileSize: 10 * 1024 * 1024 * 1024, // 10GB limit (practically unlimited)
     files: 1,
-    fieldSize: 1024 * 1024 * 1024, // 1GB field size
+    fieldSize: 10 * 1024 * 1024 * 1024, // 10GB field size
     fieldNameSize: 1000 // 1KB field name size
   },
   fileFilter: (req, file, cb) => {
@@ -526,7 +526,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({ 
         success: false, 
-        message: 'File too large. Maximum size allowed is 1GB.',
+        message: 'File too large. Maximum size allowed is 10GB.',
         error: 'FILE_TOO_LARGE'
       });
     }

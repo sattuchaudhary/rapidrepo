@@ -1039,8 +1039,8 @@ const MobileUpload = () => {
           'Content-Type': 'multipart/form-data'
         },
         timeout: 1200000, // 20 minutes timeout
-        maxContentLength: 1024 * 1024 * 1024, // 1GB (effectively unlimited)
-        maxBodyLength: 1024 * 1024 * 1024, // 1GB (effectively unlimited)
+        maxContentLength: 10 * 1024 * 1024 * 1024, // 10GB (practically unlimited)
+        maxBodyLength: 10 * 1024 * 1024 * 1024, // 10GB (practically unlimited)
         onUploadProgress: (progressEvent) => {
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
           setUploadProgress(progress);
