@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const https = require('https');
+const fs = require('fs');
 require('dotenv').config();
 
 const { connectDB } = require('./config/database');
@@ -125,8 +127,28 @@ app.use('*', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-});
+// Start server
+if (process.env.NODE_ENV === 'production' && process.env.SSL_CERT_PATH && process.env.SSL_KEY_PATH) {
+  // HTTPS server for production
+  const options = {
+    key: fs.readFileSync(process.env.SSL_KEY_PATH),
+    cert: fs.readFileSync(process.env.SSL_CERT_PATH)
+  };
+  
+  https.createServer(options, app).listen(443, () => {
+    console.log(`🔒 HTTPS Server running on port 443`);
+    console.log(`📊 Health check: https://rapidbuddy.cloud/api/health`);
+  });
+  
+  // Also listen on HTTP for redirects
+  app.listen(80, () => {
+    console.log(`🔓 HTTP Server running on port 80 (redirects to HTTPS)`);
+  });
+} else {
+  // HTTP server for development
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+  });
+}
 
