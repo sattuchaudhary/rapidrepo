@@ -8,6 +8,12 @@
     "icon": "./assets/logoo.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": "1.0.0",
     "splash": {
       "image": "./assets/logoo.png",
       "resizeMode": "contain",

@@ -48,10 +48,14 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
+import VersionChecker from '../components/VersionChecker';
+import UpdateNotification from '../components/UpdateNotification';
 
 export default function ProfileScreen({ navigation }) {
   const [agent, setAgent] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -79,6 +83,16 @@ export default function ProfileScreen({ navigation }) {
   const getInitials = (name) => {
     if (!name) return '?';
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  const handleUpdateAvailable = (updateData) => {
+    setUpdateInfo(updateData);
+    setShowUpdateModal(true);
+  };
+
+  const handleUpdateModalClose = () => {
+    setShowUpdateModal(false);
+    setUpdateInfo(null);
   };
 
   if (loading) {
@@ -183,7 +197,19 @@ export default function ProfileScreen({ navigation }) {
             <Text style={styles.actionChevron}>›</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Version Checker Section */}
+        <View style={styles.versionSection}>
+          <VersionChecker onUpdateAvailable={handleUpdateAvailable} />
+        </View>
       </ScrollView>
+
+      {/* Update Notification Modal */}
+      <UpdateNotification
+        visible={showUpdateModal}
+        onClose={handleUpdateModalClose}
+        updateInfo={updateInfo}
+      />
     </SafeAreaView>
   );
 }
@@ -352,6 +378,15 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontSize: 20,
     fontWeight: '600',
+  },
+  versionSection: {
+    backgroundColor: '#1A1D29',
+    borderRadius: 16,
+    padding: 20,
+    marginHorizontal: 20,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#2D3748',
   },
 });
 

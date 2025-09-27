@@ -144,7 +144,7 @@ const SearchResults = () => {
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 const q = (query || '').trim();
-                navigate(`/tenant/search?q=${encodeURIComponent(q)}`);
+                navigate(`/app/tenant/search?q=${encodeURIComponent(q)}`);
               }
             }}
           />
@@ -152,7 +152,7 @@ const SearchResults = () => {
             variant="contained"
             onClick={() => {
               const q = (query || '').trim();
-              navigate(`/tenant/search?q=${encodeURIComponent(q)}`);
+              navigate(`/app/tenant/search?q=${encodeURIComponent(q)}`);
             }}
           >
             Search

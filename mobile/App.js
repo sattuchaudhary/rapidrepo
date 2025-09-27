@@ -16,12 +16,16 @@ import SyncScreen from './screens/SyncScreen';
 import OfflineDataBrowser from './screens/OfflineDataBrowser';
 import GlobalSyncOverlay from './components/GlobalSyncOverlay';
 import JSONExportScreen from './screens/JSONExportScreen';
+import UpdateNotification from './components/UpdateNotification';
+import versionManager from './utils/versionManager';
 
 const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
   const appState = useRef(AppState.currentState);
   const sessionIdRef = useRef(null);
   const startedAtRef = useRef(null);
@@ -94,6 +98,33 @@ export default function App() {
       endSession();
     };
   }, [isLoggedIn]);
+
+  // Check for updates when app starts or user logs in
+  useEffect(() => {
+    const checkForUpdates = async () => {
+      if (!isLoggedIn) return;
+      
+      try {
+        const updateData = await versionManager.getUpdateInfo();
+        if (updateData) {
+          setUpdateInfo(updateData);
+          setShowUpdateModal(true);
+        }
+      } catch (error) {
+        console.error('Failed to check for updates:', error);
+      }
+    };
+
+    // Check for updates after a short delay to allow app to fully load
+    const timer = setTimeout(checkForUpdates, 2000);
+    return () => clearTimeout(timer);
+  }, [isLoggedIn]);
+
+  const handleUpdateModalClose = () => {
+    setShowUpdateModal(false);
+    setUpdateInfo(null);
+  };
+
   return (
     <NavigationContainer>
       {!isBootstrapping && (
@@ -109,6 +140,11 @@ export default function App() {
         </Stack.Navigator>
       )}
       <GlobalSyncOverlay />
+      <UpdateNotification
+        visible={showUpdateModal}
+        onClose={handleUpdateModalClose}
+        updateInfo={updateInfo}
+      />
       <StatusBar style="light" />
     </NavigationContainer>
   );

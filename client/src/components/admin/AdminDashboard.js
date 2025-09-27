@@ -120,7 +120,7 @@ const AdminDashboard = () => {
             <Button
               variant="contained"
               startIcon={<AddIcon />}
-              onClick={() => navigate('/admin/tenants')}
+              onClick={() => navigate('/app/admin/tenants')}
               sx={{ borderRadius: 2 }}
             >
               Add New Tenant
@@ -130,7 +130,7 @@ const AdminDashboard = () => {
             <Button
               variant="outlined"
               startIcon={<PeopleIcon />}
-              onClick={() => navigate('/admin/users')}
+              onClick={() => navigate('/app/admin/users')}
               sx={{ borderRadius: 2 }}
             >
               Manage Users
@@ -140,10 +140,20 @@ const AdminDashboard = () => {
             <Button
               variant="outlined"
               startIcon={<SettingsIcon />}
-              onClick={() => navigate('/admin/settings')}
+              onClick={() => navigate('/app/admin/settings')}
               sx={{ borderRadius: 2 }}
             >
               System Settings
+            </Button>
+          </Grid>
+          <Grid item>
+            <Button
+              variant="outlined"
+              startIcon={<SettingsIcon />}
+              onClick={() => navigate('/app/admin/version')}
+              sx={{ borderRadius: 2 }}
+            >
+              Version Management
             </Button>
           </Grid>
         </Grid>
@@ -289,7 +299,7 @@ const AdminDashboard = () => {
               action={
                 <Button
                   size="small"
-                  onClick={() => navigate('/admin/tenants')}
+                  onClick={() => navigate('/app/admin/tenants')}
                   startIcon={<ViewIcon />}
                 >
                   View All

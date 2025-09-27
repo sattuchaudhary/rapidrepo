@@ -170,11 +170,11 @@ const Layout = () => {
       >
         <Toolbar>
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
-            {location.pathname === '/admin' ? 'Admin Dashboard' :
-             location.pathname === '/admin/users' ? 'User Management' :
-             location.pathname === '/admin/tenants' ? 'Tenant Management' :
-             location.pathname === '/dashboard' ? 'Dashboard' :
-             location.pathname === '/profile' ? 'Profile' :
+            {location.pathname === '/app/admin' ? 'Admin Dashboard' :
+             location.pathname === '/app/admin/users' ? 'User Management' :
+             location.pathname === '/app/admin/tenants' ? 'Tenant Management' :
+             location.pathname === '/app/dashboard' ? 'Dashboard' :
+             location.pathname === '/app/profile' ? 'Profile' :
              'RapidRepo'}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

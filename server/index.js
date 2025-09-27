@@ -13,6 +13,7 @@ const adminRoutes = require('./routes/admin');
 const historyRoutes = require('./routes/history');
 const userRoutes = require('./routes/user');
 const tenantRoutes = require('./routes/tenant');
+const mobileVersionRoutes = require('./routes/mobileVersion');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -99,6 +100,7 @@ app.use('/api/tenant/users', require('./routes/tenantUsers'));
 app.use('/api/tenant/mobile', require('./routes/mobileUpload'));
 app.use('/api/tenant/data', require('./routes/fileManagement'));
 app.use('/api/bulk-download', require('./routes/bulkDownload'));
+app.use('/api/mobile', mobileVersionRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -294,7 +294,7 @@ const TenantAdminPanel = () => {
                   if (e.key === 'Enter') {
                     const q = (headerSearch || '').trim();
                     if (q) {
-                      navigate(`/tenant/search?q=${encodeURIComponent(q)}`);
+                      navigate(`/app/tenant/search?q=${encodeURIComponent(q)}`);
                     }
                   }
                 }}

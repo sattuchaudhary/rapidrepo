@@ -10,6 +10,8 @@ import Dashboard from './components/dashboard/Dashboard';
 import AdminDashboard from './components/admin/AdminDashboard';
 import UserManagement from './components/admin/UserManagement';
 import TenantManagement from './components/admin/TenantManagement';
+import VersionManagement from './components/admin/VersionManagement';
+import Settings from './components/Settings';
 import TenantAdminPanel from './components/tenant/TenantAdminPanel';
 import Profile from './components/profile/Profile';
 import Layout from './components/layout/Layout';
@@ -112,6 +114,26 @@ function App() {
             )
           }
         />
+        <Route
+          path="admin/version"
+          element={
+            user?.role === 'super_admin' ? (
+              <VersionManagement />
+            ) : (
+              <Navigate to="/app/dashboard" replace />
+            )
+          }
+        />
+        <Route
+          path="admin/settings"
+          element={
+            user?.role === 'super_admin' ? (
+              <Settings />
+            ) : (
+              <Navigate to="/app/dashboard" replace />
+            )
+          }
+        />
 
         {/* Tenant routes */}
         <Route
@@ -134,6 +156,9 @@ function App() {
             )
           }
         />
+
+        {/* Settings */}
+        <Route path="settings" element={<Settings />} />
 
         {/* Profile */}
         <Route path="profile" element={<Profile />} />
