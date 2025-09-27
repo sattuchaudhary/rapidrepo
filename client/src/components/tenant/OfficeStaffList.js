@@ -522,7 +522,7 @@ const OfficeStaffList = () => {
                     </TableCell>
                     <TableCell align="center">
                       <Box display="flex" gap={1} justifyContent="center">
-                        <IconButton size="small" color="primary" onClick={() => navigate(`/tenant/users/staff/${staffMember._id || staffMember.id}`)}>
+                        <IconButton size="small" color="primary" onClick={() => navigate(`/app/tenant/users/staff/${staffMember._id || staffMember.id}`)}>
                           <ViewIcon />
                         </IconButton>
                         <IconButton 
@@ -531,7 +531,7 @@ const OfficeStaffList = () => {
                         >
                           {staffMember.status === 'active' ? <PauseIcon /> : <PlayIcon />}
                         </IconButton>
-                        <IconButton size="small" color="primary" onClick={() => navigate(`/tenant/users/staff/${staffMember._id || staffMember.id}?edit=1`)}>
+                        <IconButton size="small" color="primary" onClick={() => navigate(`/app/tenant/users/staff/${staffMember._id || staffMember.id}?edit=1`)}>
                           <EditIcon />
                         </IconButton>
                         <IconButton size="small" color="error" onClick={() => handleDeleteStaff(staffMember._id || staffMember.id)}>

@@ -101,7 +101,7 @@ const FourWheelerData = () => {
 
   const handleViewDetails = (row) => {
     // Navigate to vehicle data details page
-    navigate(`/tenant/files/vehicle-data/${row._id}`);
+    navigate(`/app/tenant/files/vehicle-data/${row._id}`);
   };
 
   const handleDeleteUpload = async (row) => {

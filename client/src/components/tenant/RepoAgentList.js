@@ -568,10 +568,10 @@ const RepoAgentList = () => {
                     </TableCell>
                     <TableCell align="center">
                       <Box display="flex" gap={1} justifyContent="center">
-                        <IconButton size="small" color="primary" onClick={() => navigate(`/tenant/users/agents/${agent._id || agent.id}`)}>
+                        <IconButton size="small" color="primary" onClick={() => navigate(`/app/tenant/users/agents/${agent._id || agent.id}`)}>
                           <ViewIcon />
                         </IconButton>
-                        <IconButton size="small" color="primary" onClick={() => navigate(`/tenant/users/agents/${agent._id || agent.id}?edit=1`)}>
+                        <IconButton size="small" color="primary" onClick={() => navigate(`/app/tenant/users/agents/${agent._id || agent.id}?edit=1`)}>
                           <EditIcon />
                         </IconButton>
                         <IconButton 
