@@ -211,7 +211,7 @@ const TenantAdminPanel = () => {
 
   useEffect(() => {
     // Only fetch when we're on the dashboard route
-    if (location.pathname === '/tenant') {
+    if (location.pathname === '/app/tenant') {
       const fetchStats = async () => {
         try {
           setLoading(true);
@@ -932,54 +932,54 @@ const TenantAdminPanel = () => {
             </>
           )}
 
-          {location.pathname === '/tenant/users/staff' && (
+          {location.pathname === '/app/tenant/users/staff' && (
             <OfficeStaffList />
           )}
 
-          {location.pathname === '/tenant/users/agents' && (
+          {location.pathname === '/app/tenant/users/agents' && (
             <RepoAgentList />
           )}
 
           {/* Detail routes */}
-          {location.pathname.startsWith('/tenant/users/staff/') && (
+          {location.pathname.startsWith('/app/tenant/users/staff/') && (
             <UserDetailView type="staff" />
           )}
-          {location.pathname.startsWith('/tenant/users/agents/') && (
+          {location.pathname.startsWith('/app/tenant/users/agents/') && (
             <UserDetailView type="agent" />
           )}
 
-          {location.pathname === '/tenant/users/pending' && (
+          {location.pathname === '/app/tenant/users/pending' && (
             <PendingApprovals />
           )}
 
-            {location.pathname === '/tenant/clients' && (
+            {location.pathname === '/app/tenant/clients' && (
               <ClientManagement />
             )}
-            {location.pathname === '/tenant/files/two-wheeler' && (
+            {location.pathname === '/app/tenant/files/two-wheeler' && (
               <TwoWheelerData />
             )}
-            {location.pathname === '/tenant/files/four-wheeler' && (
+            {location.pathname === '/app/tenant/files/four-wheeler' && (
               <FourWheelerData />
             )}
-            {location.pathname === '/tenant/files/cv' && (
+            {location.pathname === '/app/tenant/files/cv' && (
               <CVData />
             )}
-            {location.pathname === '/tenant/mobile-upload' && (
+            {location.pathname === '/app/tenant/mobile-upload' && (
               <MobileUpload />
             )}
-            {location.pathname.startsWith('/tenant/files/vehicle-data/') && (
+            {location.pathname.startsWith('/app/tenant/files/vehicle-data/') && (
               <VehicleDataDetails />
             )}
-            {location.pathname === '/tenant/user-stats' && (
+            {location.pathname === '/app/tenant/user-stats' && (
               <UserStatistics />
             )}
-            {location.pathname === '/tenant/notifications' && (
+            {location.pathname === '/app/tenant/notifications' && (
               <Notifications />
             )}
-          {location.pathname.startsWith('/tenant/search') && (
+          {location.pathname.startsWith('/app/tenant/search') && (
             <SearchResults />
           )}
-          {location.pathname === '/tenant/profile' && (
+          {location.pathname === '/app/tenant/profile' && (
             <TenantProfile />
           )}
           </Box>
