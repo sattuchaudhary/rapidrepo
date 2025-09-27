@@ -1,9 +1,180 @@
+// const express = require('express');
+// const cors = require('cors');
+// const helmet = require('helmet');
+// const rateLimit = require('express-rate-limit');
+// // const https = require('https');
+// const fs = require('fs');
+// require('dotenv').config();
+
+// const { connectDB } = require('./config/database');
+// const authRoutes = require('./routes/auth');
+// const unifiedAuthRoutes = require('./routes/unifiedAuth');
+// const adminRoutes = require('./routes/admin');
+// const historyRoutes = require('./routes/history');
+// const userRoutes = require('./routes/user');
+// const tenantRoutes = require('./routes/tenant');
+// const mobileVersionRoutes = require('./routes/mobileVersion');
+
+// const app = express();
+// const PORT = process.env.PORT || 5000;
+
+// // Connect to MongoDB
+// connectDB();
+
+// // Security middleware
+// app.use(helmet({
+//   crossOriginEmbedderPolicy: false,
+//   contentSecurityPolicy: false
+// }));
+
+// // CORS configuration
+// app.use(cors({
+//   origin: (origin, callback) => {
+//     const allowed = [
+//       process.env.CLIENT_URL || 'http://localhost:3000',
+//       'http://localhost:19006', // Expo web default
+//       'http://127.0.0.1:19006',
+//       'https://kanufox.com',
+//       'http://www.kanufox.com',
+//       'http://72.60.103.24',
+//       'https://72.60.103.24',
+//       'https://rapidrepo.cloud',
+//       'http://rapidrepo.cloud',
+//       'https://rapidbuddy.cloud',
+//       'http://rapidbuddy.cloud',
+//       'https://api.rapidbuddy.cloud',
+//       'http://api.rapidbuddy.cloud'
+//     ];
+//     if (!origin || allowed.includes(origin)) return callback(null, true);
+//     return callback(null, true); // allow all during development
+//   },
+//   credentials: true,
+//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+//   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+//   optionsSuccessStatus: 200
+// }));
+
+// // Handle preflight requests explicitly
+// app.options('*', (req, res) => {
+//   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+//   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+//   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+//   res.header('Access-Control-Allow-Credentials', 'true');
+//   res.sendStatus(200);
+// });
+
+// // Trust proxy for rate limiting
+// app.set('trust proxy', 1);
+
+// // Rate limiting - more generous for data operations
+// const generalLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 200, // Increased limit for general API usage
+//   message: 'Too many requests from this IP, please try again later.',
+//   standardHeaders: true,
+//   legacyHeaders: false,
+// });
+
+// // More restrictive rate limiting for auth endpoints
+// const authLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 20, // Strict limit for auth
+//   message: 'Too many authentication attempts, please try again later.',
+//   standardHeaders: true,
+//   legacyHeaders: false,
+// });
+
+// // Apply general rate limiting to all routes
+// app.use(generalLimiter);
+
+// // Body parser middleware with unlimited size and 20 minute timeouts
+// app.use(express.json({ 
+//   limit: '10gb', // 10GB limit (practically unlimited)
+//   timeout: '1200000' // 20 minutes
+// }));
+// app.use(express.urlencoded({ 
+//   extended: true,
+//   limit: '10gb', // 10GB limit (practically unlimited)
+//   timeout: '1200000' // 20 minutes
+// }));
+
+// // Increase server timeout to 20 minutes
+// app.use((req, res, next) => {
+//   req.setTimeout(1200000); // 20 minutes
+//   res.setTimeout(1200000); // 20 minutes
+//   next();
+// });
+
+// // Routes
+// app.use('/api/auth', authLimiter, authRoutes);
+// app.use('/api/unified-auth', authLimiter, unifiedAuthRoutes);
+// app.use('/api/admin', adminRoutes);
+// app.use('/api/history', historyRoutes);
+// app.use('/api/user', userRoutes);
+// app.use('/api/tenants', tenantRoutes);
+// app.use('/api/tenant/clients', require('./routes/client'));
+// app.use('/api/tenant/users', require('./routes/tenantUsers'));
+// app.use('/api/tenant/mobile', require('./routes/mobileUpload'));
+// app.use('/api/tenant/data', require('./routes/fileManagement'));
+// app.use('/api/bulk-download', require('./routes/bulkDownload'));
+// app.use('/api/mobile', mobileVersionRoutes);
+
+// // Health check endpoint
+// app.get('/api/health', (req, res) => {
+//   res.json({ 
+//     status: 'OK', 
+//     message: 'RapidRepo API is running',
+//     timestamp: new Date().toISOString()
+//   });
+// });
+
+// // Error handling middleware
+// app.use((err, req, res, next) => {
+//   console.error(err.stack);
+//   res.status(500).json({ 
+//     success: false, 
+//     message: 'Something went wrong!',
+//     error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+//   });
+// });
+
+// // 404 handler
+// app.use('*', (req, res) => {
+//   res.status(404).json({ 
+//     success: false, 
+//     message: 'Route not found' 
+//   });
+// });
+
+// // Start server
+// if (process.env.NODE_ENV === 'production' && process.env.SSL_CERT_PATH && process.env.SSL_KEY_PATH) {
+//   // HTTPS server for production
+//   const options = {
+//     key: fs.readFileSync(process.env.SSL_KEY_PATH),
+//     cert: fs.readFileSync(process.env.SSL_CERT_PATH)
+//   };
+  
+//   https.createServer(options, app).listen(443, () => {
+//     console.log(`🔒 HTTPS Server running on port 443`);
+//     console.log(`📊 Health check: https://rapidbuddy.cloud/api/health`);
+//   });
+  
+//   // Also listen on HTTP for redirects
+//   app.listen(80, () => {
+//     console.log(`🔓 HTTP Server running on port 80 (redirects to HTTPS)`);
+//   });
+// } else {
+//   // HTTP server for development
+//   app.listen(PORT, () => {
+//     console.log(`🚀 Server running on port ${PORT}`);
+//     console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+//   });
+// }
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const https = require('https');
-const fs = require('fs');
 require('dotenv').config();
 
 const { connectDB } = require('./config/database');
@@ -13,7 +184,6 @@ const adminRoutes = require('./routes/admin');
 const historyRoutes = require('./routes/history');
 const userRoutes = require('./routes/user');
 const tenantRoutes = require('./routes/tenant');
-const mobileVersionRoutes = require('./routes/mobileVersion');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -22,12 +192,7 @@ const PORT = process.env.PORT || 5000;
 connectDB();
 
 // Security middleware
-app.use(helmet({
-  crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: false
-}));
-
-// CORS configuration
+app.use(helmet());
 app.use(cors({
   origin: (origin, callback) => {
     const allowed = [
@@ -48,20 +213,8 @@ app.use(cors({
     if (!origin || allowed.includes(origin)) return callback(null, true);
     return callback(null, true); // allow all during development
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  optionsSuccessStatus: 200
+  credentials: true
 }));
-
-// Handle preflight requests explicitly
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.sendStatus(200);
-});
 
 // Trust proxy for rate limiting
 app.set('trust proxy', 1);
@@ -117,7 +270,6 @@ app.use('/api/tenant/users', require('./routes/tenantUsers'));
 app.use('/api/tenant/mobile', require('./routes/mobileUpload'));
 app.use('/api/tenant/data', require('./routes/fileManagement'));
 app.use('/api/bulk-download', require('./routes/bulkDownload'));
-app.use('/api/mobile', mobileVersionRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -146,28 +298,7 @@ app.use('*', (req, res) => {
   });
 });
 
-// Start server
-if (process.env.NODE_ENV === 'production' && process.env.SSL_CERT_PATH && process.env.SSL_KEY_PATH) {
-  // HTTPS server for production
-  const options = {
-    key: fs.readFileSync(process.env.SSL_KEY_PATH),
-    cert: fs.readFileSync(process.env.SSL_CERT_PATH)
-  };
-  
-  https.createServer(options, app).listen(443, () => {
-    console.log(`🔒 HTTPS Server running on port 443`);
-    console.log(`📊 Health check: https://rapidbuddy.cloud/api/health`);
-  });
-  
-  // Also listen on HTTP for redirects
-  app.listen(80, () => {
-    console.log(`🔓 HTTP Server running on port 80 (redirects to HTTPS)`);
-  });
-} else {
-  // HTTP server for development
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-  });
-}
-
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+});
