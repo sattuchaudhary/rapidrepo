@@ -108,88 +108,88 @@ const TenantAdminPanel = () => {
     {
       text: 'Dashboard',
       icon: <DashboardIcon />,
-      path: '/tenant',
-      active: location.pathname === '/tenant'
+      path: '/app/tenant',
+      active: location.pathname === '/app/tenant'
     },
     {
       text: 'Client Management',
       icon: <PeopleIcon />,
-      path: '/tenant/clients',
-      active: location.pathname === '/tenant/clients'
+      path: '/app/tenant/clients',
+      active: location.pathname === '/app/tenant/clients'
     },
     {
       text: 'User Management',
       icon: <PeopleIcon />,
-      path: '/tenant/users',
+      path: '/app/tenant/users',
       expandable: true,
       subItems: [
-        { text: 'Office Staff List', path: '/tenant/users/staff' },
-        { text: 'Repo Agent List', path: '/tenant/users/agents' },
-        { text: 'Pending Approvals', path: '/tenant/users/pending' }
+        { text: 'Office Staff List', path: '/app/tenant/users/staff' },
+        { text: 'Repo Agent List', path: '/app/tenant/users/agents' },
+        { text: 'Pending Approvals', path: '/app/tenant/users/pending' }
       ]
     },
     {
       text: 'File Management',
       icon: <FileIcon />,
-      path: '/tenant/files',
+      path: '/app/tenant/files',
       expandable: true,
       subItems: [
-        { text: 'Two Wheeler Data', path: '/tenant/files/two-wheeler' },
-        { text: 'Four Wheeler Data', path: '/tenant/files/four-wheeler' },
-        { text: 'CV Data', path: '/tenant/files/cv' }
+        { text: 'Two Wheeler Data', path: '/app/tenant/files/two-wheeler' },
+        { text: 'Four Wheeler Data', path: '/app/tenant/files/four-wheeler' },
+        { text: 'CV Data', path: '/app/tenant/files/cv' }
       ]
     },
     {
       text: 'Mobile Upload',
       icon: <MobileIcon />,
-      path: '/tenant/mobile-upload'
+      path: '/app/tenant/mobile-upload'
     },
     {
       text: 'Data Sharing',
       icon: <ShareIcon />,
-      path: '/tenant/data-sharing',
+      path: '/app/tenant/data-sharing',
       expandable: true
     },
     {
       text: 'Bank Vehicle Data',
       icon: <BusIcon />,
-      path: '/tenant/bank-vehicles'
+      path: '/app/tenant/bank-vehicles'
     },
     {
       text: 'Notification',
       icon: <NotificationIcon />,
-      path: '/tenant/notifications'
+      path: '/app/tenant/notifications'
     },
     {
       text: 'User Statistics',
       icon: <BarChartIcon />,
-      path: '/tenant/user-stats'
+      path: '/app/tenant/user-stats'
     },
     {
       text: 'Data Analytics',
       icon: <PieChartIcon />,
-      path: '/tenant/analytics'
+      path: '/app/tenant/analytics'
     },
     {
       text: 'Send Message',
       icon: <SendIcon />,
-      path: '/tenant/messages'
+      path: '/app/tenant/messages'
     },
     {
       text: 'Reports',
       icon: <ReportIcon />,
-      path: '/tenant/reports'
+      path: '/app/tenant/reports'
     },
     {
       text: 'Settings',
       icon: <SettingsIcon />,
-      path: '/tenant/settings',
+      path: '/app/tenant/settings',
       expandable: true
     },
     {
       text: 'Profile',
       icon: <SettingsIcon />,
-      path: '/tenant/profile'
+      path: '/app/tenant/profile'
     }
   ];
 
@@ -525,7 +525,7 @@ const TenantAdminPanel = () => {
             }}
           >
           {/* Render different content based on current route */}
-          {location.pathname === '/tenant' && (
+          {location.pathname === '/app/tenant' && (
             <>
               {/* Dashboard Title */}
               <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold', mb: 3 }}>

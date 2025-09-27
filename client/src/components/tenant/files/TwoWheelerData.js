@@ -137,7 +137,7 @@ const TwoWheelerData = () => {
   };
 
   const handleMobileUpload = () => {
-    navigate('/tenant/mobile-upload');
+    navigate('/app/tenant/mobile-upload');
   };
 
   const escapeCsv = (value) => {

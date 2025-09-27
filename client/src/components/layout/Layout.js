@@ -64,24 +64,24 @@ const Layout = () => {
     {
       text: 'Dashboard',
       icon: <DashboardIcon />,
-      path: isSuperAdmin ? '/admin' : (user?.role === 'admin' ? '/tenant' : '/dashboard')
+      path: isSuperAdmin ? '/app/admin' : (user?.role === 'admin' ? '/app/tenant' : '/app/dashboard')
     },
     {
       text: 'User Management',
       icon: <PeopleIcon />,
-      path: '/admin/users',
+      path: '/app/admin/users',
       show: isSuperAdmin
     },
     {
       text: 'Tenant Management',
       icon: <BusinessIcon />,
-      path: '/admin/tenants',
+      path: '/app/admin/tenants',
       show: isSuperAdmin
     },
     {
       text: 'Profile',
       icon: <PersonIcon />,
-      path: '/profile'
+      path: '/app/profile'
     }
   ];
 
@@ -244,11 +244,11 @@ const Layout = () => {
           }
         }}
       >
-        <MenuItem onClick={() => { handleProfileMenuClose(); navigate('/profile'); }}>
+        <MenuItem onClick={() => { handleProfileMenuClose(); navigate('/app/profile'); }}>
           <PersonIcon fontSize="small" sx={{ mr: 1 }} />
           Profile
         </MenuItem>
-        <MenuItem onClick={() => { handleProfileMenuClose(); navigate('/settings'); }}>
+        <MenuItem onClick={() => { handleProfileMenuClose(); navigate('/app/settings'); }}>
           <SettingsIcon fontSize="small" sx={{ mr: 1 }} />
           Settings
         </MenuItem>

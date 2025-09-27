@@ -144,13 +144,13 @@ const VehicleDataDetails = () => {
 
   const handleBackToDataManagement = () => {
     if (uploadDetails?.vehicleType === 'TwoWheeler') {
-      navigate('/tenant/files/two-wheeler');
+      navigate('/app/tenant/files/two-wheeler');
     } else if (uploadDetails?.vehicleType === 'FourWheeler') {
-      navigate('/tenant/files/four-wheeler');
+      navigate('/app/tenant/files/four-wheeler');
     } else if (uploadDetails?.vehicleType === 'Commercial') {
-      navigate('/tenant/files/cv');
+      navigate('/app/tenant/files/cv');
     } else {
-      navigate('/tenant/files/two-wheeler');
+      navigate('/app/tenant/files/two-wheeler');
     }
   };
 
