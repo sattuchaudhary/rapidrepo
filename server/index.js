@@ -22,7 +22,12 @@ const PORT = process.env.PORT || 5000;
 connectDB();
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: false
+}));
+
+// CORS configuration
 app.use(cors({
   origin: (origin, callback) => {
     const allowed = [
@@ -43,8 +48,20 @@ app.use(cors({
     if (!origin || allowed.includes(origin)) return callback(null, true);
     return callback(null, true); // allow all during development
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  optionsSuccessStatus: 200
 }));
+
+// Handle preflight requests explicitly
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.sendStatus(200);
+});
 
 // Trust proxy for rate limiting
 app.set('trust proxy', 1);
