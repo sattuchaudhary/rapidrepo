@@ -907,6 +907,11 @@ const MobileUpload = () => {
   const [loadingMapping, setLoadingMapping] = useState(false);
   const [rawRows, setRawRows] = useState([]);
   const [columnMapping, setColumnMapping] = useState({}); // fileColumn -> standardField
+  const [isLoadingBanks, setIsLoadingBanks] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [isLoadingUpload, setIsLoadingUpload] = useState(false);
+  const [currentAction, setCurrentAction] = useState('');
 
   const standardFields = [
     'location','bankName','agreementNumber','customerName','vehicleMake','registrationNumber','engineNumber','chassisNumber','emiAmount','pos','bucketStatus','address','branchName','firstConfirmedName','firstConfirmerPhone','secondConfirmedName','secondConfirmerPhone','thirdConfirmerName','thirdConfirmerPhone','zone','areaOffice','region','allocation','vehicleModel','productName'
@@ -926,6 +931,8 @@ const MobileUpload = () => {
 
     const fetchBanks = async () => {
       try {
+        setIsLoadingBanks(true);
+        setCurrentAction('Loading banks...');
         const token = localStorage.getItem('token');
       const response = await axios.get('http://localhost:5000/api/tenant/clients', {
         headers: { Authorization: `Bearer ${token}` }
@@ -940,11 +947,16 @@ const MobileUpload = () => {
     } catch (error) {
       console.error('Error fetching banks:', error);
       toast.error('Failed to load banks. Please check your connection.');
+    } finally {
+      setIsLoadingBanks(false);
+      setCurrentAction('');
     }
   };
 
   const fetchUploadHistory = async () => {
     try {
+      setIsLoadingHistory(true);
+      setCurrentAction('Loading upload history...');
       const token = localStorage.getItem('token');
       const response = await axios.get('http://localhost:5000/api/tenant/mobile/history', {
         headers: { Authorization: `Bearer ${token}` }
@@ -954,6 +966,9 @@ const MobileUpload = () => {
       }
     } catch (error) {
       console.error('Error fetching upload history:', error);
+    } finally {
+      setIsLoadingHistory(false);
+      setCurrentAction('');
     }
   };
 
@@ -962,9 +977,19 @@ const MobileUpload = () => {
     if (selectedFile) {
       processFile(selectedFile);
     }
+    // Reset the input value to allow selecting the same file again
+    event.target.value = '';
   };
 
   const processFile = (selectedFile) => {
+    // Clear previous file data to fix the issue where previous file data loads
+    setFile(null);
+    setHeaders([]);
+    setRawRows([]);
+    setColumnMapping({});
+    setHeaderMapping({});
+    setPreviewData([]);
+    
     // Validate file type
     const allowedTypes = [
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -1016,6 +1041,8 @@ const MobileUpload = () => {
 
     try {
       setIsUploading(true);
+      setIsLoadingUpload(true);
+      setCurrentAction('Uploading file...');
       setUploadProgress(0);
       setUploadStatus('Uploading...');
 
@@ -1067,6 +1094,8 @@ const MobileUpload = () => {
       toast.error('Upload failed');
     } finally {
       setIsUploading(false);
+      setIsLoadingUpload(false);
+      setCurrentAction('');
     }
   };
 
@@ -1074,6 +1103,8 @@ const MobileUpload = () => {
     if (!file) return;
 
     try {
+      setIsLoadingPreview(true);
+      setCurrentAction('Loading file preview...');
       const formData = new FormData();
       formData.append('file', file);
       formData.append('preview', 'true');
@@ -1108,6 +1139,9 @@ const MobileUpload = () => {
     } catch (error) {
       console.error('Preview error:', error);
       toast.error('Failed to preview data');
+    } finally {
+      setIsLoadingPreview(false);
+      setCurrentAction('');
     }
   };
 
@@ -1152,7 +1186,54 @@ const MobileUpload = () => {
   ];
 
   return (
-    <Box sx={{ p: 1.5, bgcolor: 'grey.50', minHeight: '100vh' }}>
+    <Box sx={{ 
+      p: 1.5, 
+      bgcolor: 'grey.50', 
+      minHeight: '100vh',
+      '@keyframes spin': {
+        '0%': { transform: 'rotate(0deg)' },
+        '100%': { transform: 'rotate(360deg)' }
+      }
+    }}>
+      {/* Global Loading Indicator */}
+      {(isLoadingBanks || isLoadingHistory || isLoadingPreview || isLoadingUpload) && (
+        <Box sx={{ 
+          position: 'fixed', 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          zIndex: 9999, 
+          bgcolor: 'rgba(0,0,0,0.7)', 
+          display: 'flex', 
+          flexDirection: 'column',
+          alignItems: 'center', 
+          justifyContent: 'center',
+          minHeight: '100vh'
+        }}>
+          <Box sx={{ 
+            bgcolor: 'white', 
+            p: 3, 
+            borderRadius: 2, 
+            display: 'flex', 
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 2
+          }}>
+            <RefreshIcon sx={{ fontSize: 40, animation: 'spin 1s linear infinite', color: 'primary.main' }} />
+            <Typography variant="h6" color="primary.main">
+              {currentAction || 'Processing...'}
+            </Typography>
+            {isLoadingUpload && (
+              <Box sx={{ width: '100%', mt: 1 }}>
+                <LinearProgress />
+                <Typography variant="body2" sx={{ mt: 1, textAlign: 'center' }}>
+                  {uploadProgress}% Complete
+                </Typography>
+              </Box>
+            )}
+          </Box>
+        </Box>
+      )}
 
       {/* Main Content */}
       <Grid container spacing={3}>
@@ -1207,13 +1288,20 @@ const MobileUpload = () => {
                           value={selectedBank}
                           onChange={(e) => setSelectedBank(e.target.value)}
                           label="Select Bank *"
-                          disabled={banks.length === 0}
+                          disabled={banks.length === 0 || isLoadingBanks}
                         >
-                          {banks.length === 0 ? (
+                          {isLoadingBanks ? (
+                            <MenuItem disabled>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <RefreshIcon sx={{ animation: 'spin 1s linear infinite' }} />
+                                Loading banks...
+                              </Box>
+                            </MenuItem>
+                          ) : banks.length === 0 ? (
                             <MenuItem disabled>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <BankIcon />
-                                Loading banks...
+                                No banks available
                               </Box>
                             </MenuItem>
                           ) : (
@@ -1285,8 +1373,24 @@ const MobileUpload = () => {
                         </Typography>
                   {file && (
                           <>
-                            <Button variant="contained" size="small" onClick={handlePreview}>Load File</Button>
-                            <Button variant="contained" size="small" onClick={handleUpload} disabled={isUploading || !allMapped}>Upload File</Button>
+                            <Button 
+                              variant="contained" 
+                              size="small" 
+                              onClick={handlePreview}
+                              disabled={isLoadingPreview}
+                              startIcon={isLoadingPreview ? <RefreshIcon sx={{ animation: 'spin 1s linear infinite' }} /> : <ViewIcon />}
+                            >
+                              {isLoadingPreview ? 'Loading...' : 'Load File'}
+                            </Button>
+                            <Button 
+                              variant="contained" 
+                              size="small" 
+                              onClick={handleUpload} 
+                              disabled={isUploading || !allMapped || isLoadingUpload}
+                              startIcon={isLoadingUpload ? <RefreshIcon sx={{ animation: 'spin 1s linear infinite' }} /> : <UploadIcon />}
+                            >
+                              {isLoadingUpload ? 'Uploading...' : 'Upload File'}
+                            </Button>
                           </>
                         )}
                       </>
@@ -1383,8 +1487,9 @@ const MobileUpload = () => {
                       variant="outlined"
                       onClick={() => setShowHistory(true)}
                       startIcon={<HistoryIcon />}
+                      disabled={isLoadingHistory}
                     >
-                      View Upload History
+                      {isLoadingHistory ? 'Loading History...' : 'View Upload History'}
             </Button>
                   </Box>
                 </Box>
