@@ -104,6 +104,23 @@ const CVData = () => {
     navigate(`/app/tenant/files/vehicle-data/${row._id}`);
   };
 
+  const handleDeleteUpload = async (row) => {
+    if (!row?._id) return;
+    if (!window.confirm(`Delete file "${row.fileName}" and all its vehicle rows?`)) return;
+    try {
+      const token = localStorage.getItem('token');
+      const safeId = encodeURIComponent(row._id);
+      await axios.delete(`http://localhost:5000/api/tenant/data/file/${safeId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Refresh list
+      fetchData();
+    } catch (e) {
+      console.error('Delete upload failed:', e);
+      alert(e?.response?.data?.message || 'Failed to delete file');
+    }
+  };
+
   const handleSelectAll = (event) => {
     if (event.target.checked) {
       setSelectedRows(data.map(row => row._id));
@@ -356,7 +373,12 @@ const CVData = () => {
                           >
                             <ViewIcon />
                           </IconButton>
-                          <IconButton size="small" color="error" title="Delete">
+                          <IconButton 
+                            size="small" 
+                            color="error" 
+                            title="Delete"
+                            onClick={() => handleDeleteUpload(row)}
+                          >
                             <DeleteIcon />
                           </IconButton>
                         </TableCell>

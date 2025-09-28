@@ -589,11 +589,10 @@ class SQLiteOfflineDB {
 // Background sync functions
 // Background task helpers are defined once in utils/backgroundTasks
 import { registerOfflineBackgroundSync, unregisterOfflineBackgroundSync } from '../utils/backgroundTasks';
-import { countVehicles, searchByRegSuffix, searchByChassis, searchByRegSuffixPartial, searchByRegNoSuffixLike, initDatabase, bulkInsertVehicles, rebuildSearchIndex } from '../utils/db';
+import { countVehicles, searchByRegSuffix, searchByChassis, searchByRegSuffixPartial, searchByRegNoSuffixLike, initDatabase, bulkInsertVehicles, rebuildSearchIndex, clearVehicles } from '../utils/db';
 import { simpleSync, markSyncCompleted } from '../utils/simpleSync';
 import { smartSync, getIncrementalSyncStatus } from '../utils/incrementalSync';
-import { runCompleteDatabaseTest } from '../utils/dbTest';
-import { hybridSync, listSavedJsonFiles, cleanupOldJsonFiles } from '../utils/hybridSync';
+import { singleBatchSync } from '../utils/hybridSync';
 
 // Main Dashboard Component
 export default function DashboardScreen({ navigation }) {
@@ -895,20 +894,17 @@ export default function DashboardScreen({ navigation }) {
     if (downloading) return;
     setDownloading(true);
     setDownloadProgress(0);
-    setDownloadStatus('Starting hybrid sync (JSON + SQLite)...');
+    setDownloadStatus('Starting simple sync (1 lakh per batch)...');
 
     try {
-      // Clean up old JSON files first
-      await cleanupOldJsonFiles(5);
-      
-      const result = await hybridSync((progressData) => {
+      const result = await singleBatchSync((progressData) => {
         setDownloadProgress(progressData.percentage);
         setDownloadStatus(`Batch ${progressData.batchNumber}: ${progressData.currentBatch || 0} records - ${progressData.percentage}% complete`);
       });
       
       if (result.success) {
         setDownloadProgress(100);
-        setDownloadStatus('Hybrid sync completed successfully!');
+        setDownloadStatus('Simple sync completed successfully!');
         
         // Refresh local count and verify
         const updatedCount = await countVehicles();
@@ -921,9 +917,10 @@ export default function DashboardScreen({ navigation }) {
         await refreshLocalCount();
         
         // Show success message
+        const hasMore = result.hasMore ? '\n\nMore data available - click sync again for next batch!' : '\n\nAll data downloaded!';
         Alert.alert(
-          'Hybrid Sync Successful',
-          `Downloaded ${result.totalDownloaded.toLocaleString()} records in ${result.batchesProcessed} batches!\n\nInserted: ${result.totalInserted.toLocaleString()}\nJSON Files: ${result.savedFiles}\nCleaned: ${result.extraRecordsCleaned.toLocaleString()}`,
+          'Batch Sync Successful',
+          `Downloaded ${result.totalDownloaded.toLocaleString()} records!\n\nInserted: ${result.totalInserted.toLocaleString()}${hasMore}`,
           [{ text: 'OK' }]
         );
       } else {
@@ -931,7 +928,7 @@ export default function DashboardScreen({ navigation }) {
       }
 
     } catch (error) {
-      console.error('Hybrid sync error:', error);
+      console.error('Simple sync error:', error);
       Alert.alert('Sync Error', error.message || 'Failed to sync data');
       setDownloadStatus('Sync failed');
     } finally {
@@ -949,47 +946,7 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
-  const handleDatabaseTest = async () => {
-    try {
-      setDownloadStatus('Testing database...');
-      const result = await runCompleteDatabaseTest();
-      
-      if (result.success) {
-        Alert.alert('Database Test', 'All database tests passed! ✅');
-      } else {
-        Alert.alert('Database Test Failed', result.message);
-      }
-    } catch (error) {
-      console.error('Database test error:', error);
-      Alert.alert('Database Test Error', error.message);
-    } finally {
-      setDownloadStatus('Ready');
-    }
-  };
 
-  const handleListJsonFiles = async () => {
-    try {
-      const files = await listSavedJsonFiles();
-      
-      if (files.length === 0) {
-        Alert.alert('JSON Files', 'No JSON files found');
-        return;
-      }
-      
-      const fileList = files.map(file => 
-        `${file.name}\nSize: ${(file.size / 1024).toFixed(1)} KB\nModified: ${new Date(file.modificationTime * 1000).toLocaleString()}`
-      ).join('\n\n');
-      
-      Alert.alert(
-        'Saved JSON Files',
-        `Found ${files.length} JSON files:\n\n${fileList}`,
-        [{ text: 'OK' }]
-      );
-    } catch (error) {
-      console.error('List JSON files error:', error);
-      Alert.alert('Error', 'Failed to list JSON files');
-    }
-  };
 
   // DEBUG: print SQLite field stats and sample search counts in dev builds
   useEffect(() => {
@@ -1267,45 +1224,6 @@ export default function DashboardScreen({ navigation }) {
             </TouchableOpacity>
           </LinearGradient>
 
-          <LinearGradient 
-            colors={["#F59E0B", "#D97706"]} 
-            start={{ x: 0, y: 0 }} 
-            end={{ x: 1, y: 1 }} 
-            style={styles.secondaryActionGradient}
-          >
-            <TouchableOpacity
-              style={styles.secondaryActionBtn}
-              onPress={handleDatabaseTest}
-            >
-              <View style={styles.actionBtnContent}>
-                <Text style={styles.actionBtnIcon}>🧪</Text>
-                <View style={styles.actionBtnTextContainer}>
-                  <Text style={styles.actionBtnTitle}>Test DB</Text>
-                  <Text style={styles.actionBtnSubtitle}>Test database</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          </LinearGradient>
-
-          <LinearGradient 
-            colors={["#8B5CF6", "#7C3AED"]} 
-            start={{ x: 0, y: 0 }} 
-            end={{ x: 1, y: 1 }} 
-            style={styles.secondaryActionGradient}
-          >
-            <TouchableOpacity
-              style={styles.secondaryActionBtn}
-              onPress={handleListJsonFiles}
-            >
-              <View style={styles.actionBtnContent}>
-                <Text style={styles.actionBtnIcon}>📁</Text>
-                <View style={styles.actionBtnTextContainer}>
-                  <Text style={styles.actionBtnTitle}>JSON Files</Text>
-                  <Text style={styles.actionBtnSubtitle}>View saved files</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          </LinearGradient>
         </View>
       </View>
 

@@ -43,8 +43,8 @@ const executeSql = (db, sql, params = []) => new Promise((resolve, reject) => {
             return { rows: { _array: rows } };
           }
           // For non-select, use runSync so bound parameters are applied
-          db.runSync(sql, params);
-          return { rows: { _array: [] } };
+          const result = db.runSync(sql, params);
+          return { rows: { _array: [] }, changes: result?.changes || 0 };
         });
         resolve(res);
       } catch (err) {
@@ -72,37 +72,53 @@ const executeSql = (db, sql, params = []) => new Promise((resolve, reject) => {
 });
 
 export const initDatabase = async () => {
-  const db = getDatabase();
-  // Create table and indexes if not exists
   try {
-    await executeSql(db, 'PRAGMA journal_mode=WAL');
-    await executeSql(db, 'PRAGMA synchronous=NORMAL');
-    await executeSql(db, 'PRAGMA busy_timeout=5000');
-    await executeSql(db, 'PRAGMA cache_size=10000');
-    console.log('✅ Database PRAGMA settings applied');
-  } catch (e) {
-    console.log('PRAGMA setup warning:', e?.message || e);
+    console.log('🔧 Initializing database...');
+    const db = getDatabase();
+    
+    // Create table and indexes if not exists
+    try {
+      await executeSql(db, 'PRAGMA journal_mode=WAL');
+      await executeSql(db, 'PRAGMA synchronous=NORMAL');
+      await executeSql(db, 'PRAGMA busy_timeout=5000');
+      await executeSql(db, 'PRAGMA cache_size=10000');
+      console.log('✅ Database PRAGMA settings applied');
+    } catch (e) {
+      console.log('PRAGMA setup warning:', e?.message || e);
+    }
+    await executeSql(db, `CREATE TABLE IF NOT EXISTS vehicles (
+      _id TEXT PRIMARY KEY,
+      vehicleType TEXT,
+      regNo TEXT,
+      regSuffix TEXT,
+      chassisNo TEXT,
+      chassisLc TEXT,
+      loanNo TEXT,
+      bank TEXT,
+      make TEXT,
+      customerName TEXT,
+      address TEXT
+    )`);
+    console.log('✅ Vehicles table created/verified');
+    
+    await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_regsuffix ON vehicles (regSuffix)');
+    await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_chassislc ON vehicles (chassisLc)');
+    console.log('✅ Indexes created/verified');
+    // Aux table to mark seen ids per sync to support deletion of stale rows
+    await executeSql(db, `CREATE TABLE IF NOT EXISTS sync_seen (
+      _id TEXT PRIMARY KEY
+    )`);
+    console.log('✅ Sync table created/verified');
+    
+    // Test database connection
+    const testResult = await executeSql(db, 'SELECT COUNT(*) as count FROM vehicles');
+    console.log(`✅ Database test successful, current count: ${testResult.rows._array[0]?.count || 0}`);
+    
+    return db;
+  } catch (error) {
+    console.error('❌ Database initialization failed:', error);
+    throw error;
   }
-  await executeSql(db, `CREATE TABLE IF NOT EXISTS vehicles (
-    _id TEXT PRIMARY KEY,
-    vehicleType TEXT,
-    regNo TEXT,
-    regSuffix TEXT,
-    chassisNo TEXT,
-    chassisLc TEXT,
-    loanNo TEXT,
-    bank TEXT,
-    make TEXT,
-    customerName TEXT,
-    address TEXT
-  )`);
-  await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_regsuffix ON vehicles (regSuffix)');
-  await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_chassislc ON vehicles (chassisLc)');
-  // Aux table to mark seen ids per sync to support deletion of stale rows
-  await executeSql(db, `CREATE TABLE IF NOT EXISTS sync_seen (
-    _id TEXT PRIMARY KEY
-  )`);
-  return db;
 };
 
 export const clearVehicles = async () => {
@@ -171,7 +187,11 @@ export const bulkInsertVehicles = async (items, options = {}) => {
 
   console.log(`📦 Bulk inserting ${items.length} items in chunks of ${chunkSize}`);
 
-  for (let i = 0; i < items.length; i += chunkSize) {
+  // Start transaction for better performance and consistency
+  await executeSql(db, 'BEGIN TRANSACTION');
+
+  try {
+    for (let i = 0; i < items.length; i += chunkSize) {
     const chunk = items.slice(i, i + chunkSize);
     
     if (_isNewAPI) {
@@ -277,8 +297,17 @@ export const bulkInsertVehicles = async (items, options = {}) => {
     }
   }
   
+  // Commit transaction
+  await executeSql(db, 'COMMIT');
   console.log(`✅ Bulk insert completed: ${inserted} items inserted`);
   return inserted;
+  
+  } catch (error) {
+    // Rollback transaction on error
+    await executeSql(db, 'ROLLBACK');
+    console.error('❌ Bulk insert failed, transaction rolled back:', error);
+    throw error;
+  }
 };
 
 export const searchByRegSuffix = async (suffix) => {

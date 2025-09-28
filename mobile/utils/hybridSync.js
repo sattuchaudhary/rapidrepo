@@ -4,14 +4,43 @@ import axios from 'axios';
 import { getBaseURL } from './config';
 import { initDatabase, bulkInsertVehicles, clearVehicles, countVehicles } from './db';
 
-// Hybrid sync configuration (JSON file + SQLite)
-const HYBRID_SYNC_CONFIG = {
-  maxRecordsPerBatch: 50000, // 50K records per batch
-  timeout: 300000, // 5 minutes per batch
-  delayBetweenBatches: 500, // 0.5 second delay
+// Simple sync configuration (SQLite only)
+const SIMPLE_SYNC_CONFIG = {
+  maxRecordsPerBatch: 100000, // 1 lakh records per batch
+  timeout: 600000, // 10 minutes per batch
+  delayBetweenBatches: 1000, // 1 second delay
   maxRetries: 3,
-  saveJsonFiles: true, // Save JSON files for backup
+  saveJsonFiles: false, // Don't save JSON files
   convertToSqlite: true // Convert to SQLite for search
+};
+
+// Offset management functions
+const getCurrentOffset = async () => {
+  try {
+    const offset = await SecureStore.getItemAsync('sync_offset');
+    return offset ? parseInt(offset) : 0;
+  } catch (error) {
+    console.error('Error getting current offset:', error);
+    return 0;
+  }
+};
+
+const setCurrentOffset = async (offset) => {
+  try {
+    await SecureStore.setItemAsync('sync_offset', offset.toString());
+    console.log(`📝 Updated sync offset to: ${offset}`);
+  } catch (error) {
+    console.error('Error setting current offset:', error);
+  }
+};
+
+const resetSyncOffset = async () => {
+  try {
+    await SecureStore.deleteItemAsync('sync_offset');
+    console.log('🔄 Reset sync offset to 0');
+  } catch (error) {
+    console.error('Error resetting sync offset:', error);
+  }
 };
 
 // Download JSON data and save to file
@@ -30,10 +59,10 @@ export const downloadAndSaveJson = async (offset = 0, batchNumber = 1) => {
         'Accept-Encoding': 'gzip, deflate'
       },
       params: { 
-        limit: HYBRID_SYNC_CONFIG.maxRecordsPerBatch, 
+        limit: SIMPLE_SYNC_CONFIG.maxRecordsPerBatch, 
         offset 
       },
-      timeout: HYBRID_SYNC_CONFIG.timeout
+      timeout: SIMPLE_SYNC_CONFIG.timeout
     });
     
     if (!response.data.success) {
@@ -44,24 +73,7 @@ export const downloadAndSaveJson = async (offset = 0, batchNumber = 1) => {
     
     console.log(`📦 Downloaded ${currentBatch} records from server`);
     
-    // Save JSON file if enabled
-    if (HYBRID_SYNC_CONFIG.saveJsonFiles && data.length > 0) {
-      const jsonString = JSON.stringify({
-        tenant,
-        batchNumber,
-        offset,
-        totalRecords,
-        currentBatch,
-        downloadedAt: new Date().toISOString(),
-        data
-      });
-      
-      const filename = `batch_${batchNumber}_${tenant}_${Date.now()}.json`;
-      const filePath = `${FileSystem.documentDirectory}${filename}`;
-      
-      await FileSystem.writeAsStringAsync(filePath, jsonString);
-      console.log(`💾 Saved JSON file: ${filename}`);
-    }
+    // Skip JSON file saving - direct SQLite conversion only
     
     return {
       success: true,
@@ -83,6 +95,11 @@ export const convertJsonToSqlite = async (jsonData, isFirstBatch = false) => {
   try {
     console.log(`🔄 Converting ${jsonData.length} records to SQLite`);
     
+    // Debug: Check sample data
+    if (jsonData.length > 0) {
+      console.log('🔍 Sample record:', JSON.stringify(jsonData[0], null, 2));
+    }
+    
     // Initialize database
     await initDatabase();
     console.log('✅ Database initialized');
@@ -98,11 +115,13 @@ export const convertJsonToSqlite = async (jsonData, isFirstBatch = false) => {
     const countBefore = await countVehicles();
     console.log(`📊 Records before insertion: ${countBefore}`);
     
-    // Insert new data
+    // Insert new data with detailed logging
+    console.log('📝 Starting bulk insert...');
     const inserted = await bulkInsertVehicles(jsonData, {
-      chunkSize: 2000,
+      chunkSize: 1000, // Smaller chunks for better debugging
       reindex: true
     });
+    console.log('📝 Bulk insert completed');
     
     // Check count after insertion
     const countAfter = await countVehicles();
@@ -114,9 +133,15 @@ export const convertJsonToSqlite = async (jsonData, isFirstBatch = false) => {
       console.warn(`⚠️ Insertion mismatch: expected ${jsonData.length}, got ${inserted}`);
     }
     
+    // Additional verification
+    if (countAfter <= countBefore) {
+      console.error(`❌ Database count did not increase! Before: ${countBefore}, After: ${countAfter}`);
+    }
+    
     return inserted;
   } catch (error) {
     console.error('JSON to SQLite conversion failed:', error);
+    console.error('Error details:', error.stack);
     throw new Error(`Database conversion failed: ${error.message}`);
   }
 };
@@ -154,6 +179,63 @@ export const loadJsonFromFileAndConvert = async (filePath) => {
   }
 };
 
+// Single batch sync (1 lakh records per click)
+export const singleBatchSync = async (onProgress = null) => {
+  try {
+    console.log('🚀 Starting single batch sync (1 lakh records)...');
+    
+    // Get current offset from stored metadata
+    const currentOffset = await getCurrentOffset();
+    const batchNumber = Math.floor(currentOffset / SIMPLE_SYNC_CONFIG.maxRecordsPerBatch) + 1;
+    
+    console.log(`📥 Batch ${batchNumber}: Downloading from offset ${currentOffset}`);
+    
+    // Download single batch
+    const downloadResult = await downloadAndSaveJson(currentOffset, batchNumber);
+    
+    let totalInserted = 0;
+    
+    // Convert to SQLite
+    if (SIMPLE_SYNC_CONFIG.convertToSqlite && downloadResult.data.length > 0) {
+      const inserted = await convertJsonToSqlite(downloadResult.data, currentOffset === 0);
+      totalInserted += inserted;
+    }
+    
+    // Update stored offset for next batch
+    await setCurrentOffset(downloadResult.nextOffset);
+    
+    // Update progress
+    if (onProgress) {
+      onProgress({
+        processed: downloadResult.downloaded,
+        currentBatch: downloadResult.downloaded,
+        batchNumber,
+        percentage: 100,
+        hasMore: downloadResult.hasMore
+      });
+    }
+    
+    console.log(`✅ Batch ${batchNumber} completed: ${downloadResult.downloaded} downloaded, ${totalInserted} inserted`);
+    
+    const finalResult = {
+      success: true,
+      totalDownloaded: downloadResult.downloaded,
+      totalInserted,
+      batchesProcessed: 1,
+      hasMore: downloadResult.hasMore,
+      nextOffset: downloadResult.nextOffset,
+      syncType: 'single_batch'
+    };
+    
+    console.log('🎉 Single batch sync completed:', finalResult);
+    return finalResult;
+    
+  } catch (error) {
+    console.error('Single batch sync failed:', error);
+    throw new Error(`Single batch sync failed: ${error.message}`);
+  }
+};
+
 // Complete hybrid sync (download JSON + convert to SQLite)
 export const hybridSync = async (onProgress = null) => {
   try {
@@ -178,18 +260,9 @@ export const hybridSync = async (onProgress = null) => {
         offset = downloadResult.nextOffset;
         
         // Convert to SQLite
-        if (HYBRID_SYNC_CONFIG.convertToSqlite && downloadResult.data.length > 0) {
+        if (SIMPLE_SYNC_CONFIG.convertToSqlite && downloadResult.data.length > 0) {
           const inserted = await convertJsonToSqlite(downloadResult.data, batchNumber === 1);
           totalInserted += inserted;
-        }
-        
-        // Track saved files
-        if (HYBRID_SYNC_CONFIG.saveJsonFiles) {
-          savedFiles.push({
-            batchNumber,
-            offset: offset - downloadResult.downloaded,
-            records: downloadResult.downloaded
-          });
         }
         
         // Update progress
@@ -208,7 +281,7 @@ export const hybridSync = async (onProgress = null) => {
         
         // Small delay between batches
         if (hasMore) {
-          await new Promise(resolve => setTimeout(resolve, HYBRID_SYNC_CONFIG.delayBetweenBatches));
+          await new Promise(resolve => setTimeout(resolve, SIMPLE_SYNC_CONFIG.delayBetweenBatches));
         }
         
         batchNumber++;
@@ -227,16 +300,27 @@ export const hybridSync = async (onProgress = null) => {
       totalInserted,
       batchesProcessed: batchNumber - 1,
       extraRecordsCleaned: cleaned,
-      savedFiles: savedFiles.length,
-      syncType: 'hybrid'
+      syncType: 'simple'
     };
     
-    console.log('🎉 Hybrid sync completed:', finalResult);
+    console.log('🎉 Simple sync completed:', finalResult);
     return finalResult;
     
   } catch (error) {
-    console.error('Hybrid sync failed:', error);
-    throw new Error(`Hybrid sync failed: ${error.message}`);
+    console.error('Simple sync failed:', error);
+    throw new Error(`Simple sync failed: ${error.message}`);
+  }
+};
+
+// Reset sync progress (start from beginning)
+export const resetSyncProgress = async () => {
+  try {
+    await resetSyncOffset();
+    console.log('🔄 Sync progress reset - next sync will start from beginning');
+    return { success: true };
+  } catch (error) {
+    console.error('Error resetting sync progress:', error);
+    return { success: false, error: error.message };
   }
 };
 

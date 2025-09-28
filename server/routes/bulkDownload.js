@@ -416,7 +416,7 @@ router.post('/create-snapshot', authenticateUnifiedToken, requireAdmin, async (r
 // Simple dump endpoint for mobile app (1 lakh records max per batch)
 router.get('/simple-dump', authenticateUnifiedToken, async (req, res) => {
   try {
-    const { limit = 50000, offset = 0 } = req.query;
+    const { limit = 100000, offset = 0 } = req.query;
     
     const tenantId = req.user?.tenantId;
     const tenantName = req.user?.tenantName;
@@ -538,7 +538,7 @@ router.get('/simple-dump', authenticateUnifiedToken, async (req, res) => {
 // Get new records since timestamp (for incremental sync)
 router.get('/new-records', authenticateUnifiedToken, async (req, res) => {
   try {
-    const { since, limit = 50000, offset = 0 } = req.query;
+    const { since, limit = 100000, offset = 0 } = req.query;
     
     if (!since) {
       return res.status(400).json({ 
