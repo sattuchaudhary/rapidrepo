@@ -65,6 +65,33 @@ const tenantSchema = new mongoose.Schema({
   adminUser: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
+  },
+  fieldMapping: {
+    
+    type: mongoose.Schema.Types.Mixed,
+    default: {
+      regNo: true,
+      chassisNo: true,
+      loanNo: true,
+      bank: true,
+      make: true,
+      customerName: true,
+      engineNo: true,
+      emiAmount: true,
+      address: true,
+      branch: true,
+      pos: true,
+      model: true,
+      productName: true,
+      bucket: true,
+      season: true,
+      inYard: false,
+      yardName: false,
+      yardLocation: false,
+      status: true,
+      uploadDate: false,
+      fileName: false
+    }
   }
 }, {
   timestamps: true
