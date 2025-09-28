@@ -152,9 +152,6 @@ export const incrementalSync = async (onProgress = null) => {
     const result = await getNewRecordsSince(lastSync, onProgress);
     
     if (result.success) {
-      // Update last sync timestamp
-      await setLastSyncTimestamp();
-      
       const finalResult = {
         success: true,
         newRecordsFound: result.totalNewRecords,
@@ -190,7 +187,12 @@ export const smartSync = async (onProgress = null) => {
     
     if (lastSync) {
       console.log('📈 Performing incremental sync');
-      return await incrementalSync(onProgress);
+      const result = await incrementalSync(onProgress);
+      if (result.success) {
+        // Update timestamp after successful incremental sync
+        await setLastSyncTimestamp();
+      }
+      return result;
     } else {
       console.log('📥 Performing full sync (no previous sync found)');
       // Import full sync function

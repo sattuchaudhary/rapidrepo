@@ -614,6 +614,10 @@ export default function DashboardScreen({ navigation }) {
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState('Ready');
+  const [showLoadingOverlay, setShowLoadingOverlay] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
+  const [isSyncComplete, setIsSyncComplete] = useState(false);
+  const [needsSync, setNeedsSync] = useState(false);
   
   // Use shared utils/db for offline store used by sync
 
@@ -626,6 +630,8 @@ export default function DashboardScreen({ navigation }) {
         // Initialize shared DB and load count
         const count = await countVehicles();
         setLocalCount(typeof count === 'number' ? count : 0);
+        const flag = await SecureStore.getItemAsync('sync_complete_flag');
+        setIsSyncComplete(flag === 'true');
         
         if (count > 0) {
           const lastSync = await SecureStore.getItemAsync('lastSyncTime');
@@ -636,6 +642,9 @@ export default function DashboardScreen({ navigation }) {
         }
 
         console.log(`SQLite loaded with ${count} records`);
+        
+        // Check for new records on app startup
+        await checkForNewRecords();
       } catch (error) {
         console.error('Error loading data:', error);
       }
@@ -893,18 +902,60 @@ export default function DashboardScreen({ navigation }) {
   const syncViaJsonDump = async () => {
     if (downloading) return;
     setDownloading(true);
+    setShowLoadingOverlay(true);
+    setLoadingMessage('Checking for updates...');
     setDownloadProgress(0);
-    setDownloadStatus('Starting simple sync (1 lakh per batch)...');
+    setDownloadStatus('Checking for new records...');
 
     try {
-      const result = await singleBatchSync((progressData) => {
-        setDownloadProgress(progressData.percentage);
-        setDownloadStatus(`Batch ${progressData.batchNumber}: ${progressData.currentBatch || 0} records - ${progressData.percentage}% complete`);
+      // First check if we need sync by comparing server vs local count
+      const token = await SecureStore.getItemAsync('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      // Get server total count
+      const serverStatsRes = await axios.get(`${getBaseURL()}/api/bulk-download/simple-dump`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { limit: 1, offset: 0 },
+        timeout: 30000
+      });
+
+      if (!serverStatsRes.data.success) {
+        throw new Error('Failed to get server stats');
+      }
+
+      const serverTotal = serverStatsRes.data.totalRecords;
+      const localCount = await countVehicles();
+      
+      console.log(`📊 Server total: ${serverTotal}, Local count: ${localCount}`);
+
+      // Check if we need to sync
+      const difference = Math.abs(serverTotal - localCount);
+      const threshold = Math.max(1000, serverTotal * 0.05); // 5% or 1000 records threshold
+      
+      if (difference < threshold) {
+        setDownloadProgress(100);
+        setDownloadStatus('Already up to date!');
+        setShowLoadingOverlay(false);
+        setTimeout(() => setDownloading(false), 1000);
+        Alert.alert('Sync Status', `Already up to date!\n\nServer: ${serverTotal.toLocaleString()} records\nLocal: ${localCount.toLocaleString()} records`);
+        return;
+      }
+
+      setLoadingMessage('Downloading new records...');
+      setDownloadStatus(`Found ${difference.toLocaleString()} new records to download...`);
+
+      // Use smart sync that handles both incremental and full sync
+      const { smartSync } = await import('../utils/incrementalSync');
+      const result = await smartSync((progressData) => {
+        setDownloadProgress(progressData.percentage || 0);
+        setDownloadStatus(`Downloading: ${progressData.processed || 0}/${progressData.total || 0} records - ${progressData.percentage || 0}% complete`);
       });
       
       if (result.success) {
         setDownloadProgress(100);
-        setDownloadStatus('Simple sync completed successfully!');
+        setDownloadStatus('Sync completed successfully!');
         
         // Refresh local count and verify
         const updatedCount = await countVehicles();
@@ -913,25 +964,41 @@ export default function DashboardScreen({ navigation }) {
         setLastDownloadedAt(new Date().toLocaleString());
         setLastSyncTime(new Date().toISOString());
         
-        // Force refresh the count display
+        // Persist sync completion flag and timestamp
+        const complete = !result.hasMore;
+        setIsSyncComplete(complete);
+        await SecureStore.setItemAsync('sync_complete_flag', complete ? 'true' : 'false');
+        await SecureStore.setItemAsync('lastSyncTime', new Date().toISOString());
+        
+        // Also set the incremental sync timestamp
+        const { setLastSyncTimestamp } = await import('../utils/incrementalSync');
+        await setLastSyncTimestamp();
+
+        // Force refresh the count display and check for new records
         await refreshLocalCount();
         
-        // Show success message
-        const hasMore = result.hasMore ? '\n\nMore data available - click sync again for next batch!' : '\n\nAll data downloaded!';
-        Alert.alert(
-          'Batch Sync Successful',
-          `Downloaded ${result.totalDownloaded.toLocaleString()} records!\n\nInserted: ${result.totalInserted.toLocaleString()}${hasMore}`,
-          [{ text: 'OK' }]
-        );
+        // Show success message based on sync type
+        let message = '';
+        if (result.syncType === 'incremental') {
+          message = `Incremental sync completed!\n\nNew records: ${result.newRecordsInserted?.toLocaleString() || 0}\nTotal local: ${updatedCount.toLocaleString()}`;
+        } else if (result.syncType === 'full') {
+          message = `Full sync completed!\n\nDownloaded: ${result.totalDownloaded?.toLocaleString() || 0} records\nTotal local: ${updatedCount.toLocaleString()}`;
+        } else {
+          message = `Sync completed!\n\nTotal local: ${updatedCount.toLocaleString()}`;
+        }
+        
+        Alert.alert('Sync Successful', message, [{ text: 'OK' }]);
       } else {
         throw new Error(result.message || 'Sync failed');
       }
 
     } catch (error) {
-      console.error('Simple sync error:', error);
+      console.error('Sync error:', error);
       Alert.alert('Sync Error', error.message || 'Failed to sync data');
       setDownloadStatus('Sync failed');
     } finally {
+      setShowLoadingOverlay(false);
+      setLoadingMessage('');
       setTimeout(() => setDownloading(false), 1000);
     }
   };
@@ -941,10 +1008,52 @@ export default function DashboardScreen({ navigation }) {
       const count = await countVehicles();
       setLocalCount(count);
       console.log(`Refreshed local count: ${count}`);
+      
+      // Auto-check for new records
+      await checkForNewRecords();
     } catch (error) {
       console.error('Error refreshing count:', error);
     }
   };
+
+  const checkForNewRecords = async () => {
+    try {
+      const token = await SecureStore.getItemAsync('token');
+      if (!token) {
+        setNeedsSync(false);
+        return;
+      }
+
+      // Get server total count
+      const serverStatsRes = await axios.get(`${getBaseURL()}/api/bulk-download/simple-dump`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { limit: 1, offset: 0 },
+        timeout: 30000
+      });
+
+      if (!serverStatsRes.data.success) {
+        setNeedsSync(false);
+        return;
+      }
+
+      const serverTotal = serverStatsRes.data.totalRecords;
+      const localCount = await countVehicles();
+      
+      // Check if we need to sync
+      const difference = Math.abs(serverTotal - localCount);
+      const threshold = Math.max(1000, serverTotal * 0.05); // 5% or 1000 records threshold
+      
+      const shouldSync = difference >= threshold;
+      setNeedsSync(shouldSync);
+      
+      console.log(`📊 Sync check: Server=${serverTotal}, Local=${localCount}, Difference=${difference}, NeedsSync=${shouldSync}`);
+      
+    } catch (error) {
+      console.error('Error checking for new records:', error);
+      setNeedsSync(false);
+    }
+  };
+
 
 
 
@@ -1068,8 +1177,8 @@ export default function DashboardScreen({ navigation }) {
         </View>
       </Animated.View>
 
-      {/* Progress Bar removed to simplify dashboard */}
-      {downloading && (
+      {/* Progress Bar - Hidden when overlay is shown */}
+      {downloading && !showLoadingOverlay && (
         <ProgressBar progress={downloadProgress || 0} status={downloadStatus || ''} />
       )}
 
@@ -1178,7 +1287,7 @@ export default function DashboardScreen({ navigation }) {
         {/* Action Buttons Section */}
         <View style={styles.actionSection}>
           <LinearGradient 
-            colors={["#10B981", "#059669"]} 
+            colors={needsSync ? ["#EF4444", "#DC2626"] : (isSyncComplete ? ["#10B981", "#059669"] : ["#3B82F6", "#1D4ED8"])} 
             start={{ x: 0, y: 0 }} 
             end={{ x: 1, y: 1 }} 
             style={[styles.primaryActionGradient, downloading && { opacity: 0.7 }]}
@@ -1194,10 +1303,10 @@ export default function DashboardScreen({ navigation }) {
                 </Text>
                 <View style={styles.actionBtnTextContainer}>
                   <Text style={styles.actionBtnTitle}>
-                    {downloading ? 'Syncing...' : 'Sync Data'}
+                    {downloading ? 'Syncing...' : (needsSync ? 'Sync Data (New Available!)' : (isSyncComplete ? 'Sync Data (Complete)' : 'Sync Data'))}
                   </Text>
                   <Text style={styles.actionBtnSubtitle}>
-                    {downloading ? 'Please wait' : 'Update local database'}
+                    {downloading ? 'Please wait' : (needsSync ? 'New records available' : (isSyncComplete ? 'All data downloaded' : 'Continue downloading'))}
                   </Text>
                 </View>
               </View>
@@ -1218,7 +1327,7 @@ export default function DashboardScreen({ navigation }) {
                 <Text style={styles.actionBtnIcon}>🔄</Text>
                 <View style={styles.actionBtnTextContainer}>
                   <Text style={styles.actionBtnTitle}>Refresh</Text>
-                  <Text style={styles.actionBtnSubtitle}>Update count</Text>
+                  <Text style={styles.actionBtnSubtitle}>Check updates</Text>
                 </View>
               </View>
             </TouchableOpacity>
@@ -1226,6 +1335,30 @@ export default function DashboardScreen({ navigation }) {
 
         </View>
       </View>
+
+      {/* Loading Overlay */}
+      {showLoadingOverlay && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingContainer}>
+            <View style={styles.loadingSpinner}>
+              <Text style={styles.loadingSpinnerText}>⏳</Text>
+            </View>
+            <Text style={styles.loadingTitle}>Downloading</Text>
+            <Text style={styles.loadingMessage}>Please Wait...</Text>
+            <View style={styles.loadingProgressContainer}>
+              <View style={styles.loadingProgressBar}>
+                <View 
+                  style={[
+                    styles.loadingProgressFill, 
+                    { width: `${downloadProgress}%` }
+                  ]} 
+                />
+              </View>
+              <Text style={styles.loadingProgressText}>{downloadProgress}%</Text>
+            </View>
+          </View>
+        </View>
+      )}
 
 
 
@@ -1663,5 +1796,77 @@ bottomBar: {
   drawerTitle: { fontSize: 12, fontWeight: '800', color: '#9CA3AF', marginBottom: 8, marginTop: 8 },
   drawerItem: { paddingVertical: 12, paddingHorizontal: 8, borderRadius: 10 },
   drawerDivider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 8 },
-  drawerItemText: { fontSize: 16, color: '#111827', fontWeight: '700' }
+  drawerItemText: { fontSize: 16, color: '#111827', fontWeight: '700' },
+  // Loading Overlay Styles
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  loadingContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 30,
+    alignItems: 'center',
+    minWidth: 280,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  loadingSpinner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  loadingSpinnerText: {
+    fontSize: 30,
+  },
+  loadingTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  loadingMessage: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 20,
+  },
+  loadingProgressContainer: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  loadingProgressBar: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  loadingProgressFill: {
+    height: '100%',
+    backgroundColor: '#3B82F6',
+    borderRadius: 4,
+  },
+  loadingProgressText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#3B82F6',
+  }
 });
