@@ -591,6 +591,9 @@ class SQLiteOfflineDB {
 import { registerOfflineBackgroundSync, unregisterOfflineBackgroundSync } from '../utils/backgroundTasks';
 import { countVehicles, searchByRegSuffix, searchByChassis, searchByRegSuffixPartial, searchByRegNoSuffixLike, initDatabase, bulkInsertVehicles, rebuildSearchIndex } from '../utils/db';
 import { simpleSync, markSyncCompleted } from '../utils/simpleSync';
+import { smartSync, getIncrementalSyncStatus } from '../utils/incrementalSync';
+import { runCompleteDatabaseTest } from '../utils/dbTest';
+import { hybridSync, listSavedJsonFiles, cleanupOldJsonFiles } from '../utils/hybridSync';
 
 // Main Dashboard Component
 export default function DashboardScreen({ navigation }) {
@@ -892,27 +895,35 @@ export default function DashboardScreen({ navigation }) {
     if (downloading) return;
     setDownloading(true);
     setDownloadProgress(0);
-    setDownloadStatus('Starting simple sync...');
+    setDownloadStatus('Starting hybrid sync (JSON + SQLite)...');
 
     try {
-      const result = await simpleSync((progressData) => {
+      // Clean up old JSON files first
+      await cleanupOldJsonFiles(5);
+      
+      const result = await hybridSync((progressData) => {
         setDownloadProgress(progressData.percentage);
-        setDownloadStatus(`Batch ${progressData.currentBatch || 0} records - ${progressData.percentage}% complete`);
+        setDownloadStatus(`Batch ${progressData.batchNumber}: ${progressData.currentBatch || 0} records - ${progressData.percentage}% complete`);
       });
       
       if (result.success) {
-        await markSyncCompleted();
         setDownloadProgress(100);
-        setDownloadStatus('Sync completed successfully!');
+        setDownloadStatus('Hybrid sync completed successfully!');
         
+        // Refresh local count and verify
         const updatedCount = await countVehicles();
+        console.log(`📊 Final local count after sync: ${updatedCount}`);
         setLocalCount(typeof updatedCount === 'number' ? updatedCount : 0);
         setLastDownloadedAt(new Date().toLocaleString());
         setLastSyncTime(new Date().toISOString());
         
+        // Force refresh the count display
+        await refreshLocalCount();
+        
+        // Show success message
         Alert.alert(
-          'Sync Successful',
-          `Downloaded ${result.totalDownloaded.toLocaleString()} records in ${result.batchesProcessed} batches!\n\nInserted: ${result.totalInserted.toLocaleString()}\nCleaned: ${result.extraRecordsCleaned.toLocaleString()}`,
+          'Hybrid Sync Successful',
+          `Downloaded ${result.totalDownloaded.toLocaleString()} records in ${result.batchesProcessed} batches!\n\nInserted: ${result.totalInserted.toLocaleString()}\nJSON Files: ${result.savedFiles}\nCleaned: ${result.extraRecordsCleaned.toLocaleString()}`,
           [{ text: 'OK' }]
         );
       } else {
@@ -920,7 +931,7 @@ export default function DashboardScreen({ navigation }) {
       }
 
     } catch (error) {
-      console.error('Sync error:', error);
+      console.error('Hybrid sync error:', error);
       Alert.alert('Sync Error', error.message || 'Failed to sync data');
       setDownloadStatus('Sync failed');
     } finally {
@@ -935,6 +946,48 @@ export default function DashboardScreen({ navigation }) {
       console.log(`Refreshed local count: ${count}`);
     } catch (error) {
       console.error('Error refreshing count:', error);
+    }
+  };
+
+  const handleDatabaseTest = async () => {
+    try {
+      setDownloadStatus('Testing database...');
+      const result = await runCompleteDatabaseTest();
+      
+      if (result.success) {
+        Alert.alert('Database Test', 'All database tests passed! ✅');
+      } else {
+        Alert.alert('Database Test Failed', result.message);
+      }
+    } catch (error) {
+      console.error('Database test error:', error);
+      Alert.alert('Database Test Error', error.message);
+    } finally {
+      setDownloadStatus('Ready');
+    }
+  };
+
+  const handleListJsonFiles = async () => {
+    try {
+      const files = await listSavedJsonFiles();
+      
+      if (files.length === 0) {
+        Alert.alert('JSON Files', 'No JSON files found');
+        return;
+      }
+      
+      const fileList = files.map(file => 
+        `${file.name}\nSize: ${(file.size / 1024).toFixed(1)} KB\nModified: ${new Date(file.modificationTime * 1000).toLocaleString()}`
+      ).join('\n\n');
+      
+      Alert.alert(
+        'Saved JSON Files',
+        `Found ${files.length} JSON files:\n\n${fileList}`,
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      console.error('List JSON files error:', error);
+      Alert.alert('Error', 'Failed to list JSON files');
     }
   };
 
@@ -1209,6 +1262,46 @@ export default function DashboardScreen({ navigation }) {
                 <View style={styles.actionBtnTextContainer}>
                   <Text style={styles.actionBtnTitle}>Refresh</Text>
                   <Text style={styles.actionBtnSubtitle}>Update count</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </LinearGradient>
+
+          <LinearGradient 
+            colors={["#F59E0B", "#D97706"]} 
+            start={{ x: 0, y: 0 }} 
+            end={{ x: 1, y: 1 }} 
+            style={styles.secondaryActionGradient}
+          >
+            <TouchableOpacity
+              style={styles.secondaryActionBtn}
+              onPress={handleDatabaseTest}
+            >
+              <View style={styles.actionBtnContent}>
+                <Text style={styles.actionBtnIcon}>🧪</Text>
+                <View style={styles.actionBtnTextContainer}>
+                  <Text style={styles.actionBtnTitle}>Test DB</Text>
+                  <Text style={styles.actionBtnSubtitle}>Test database</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </LinearGradient>
+
+          <LinearGradient 
+            colors={["#8B5CF6", "#7C3AED"]} 
+            start={{ x: 0, y: 0 }} 
+            end={{ x: 1, y: 1 }} 
+            style={styles.secondaryActionGradient}
+          >
+            <TouchableOpacity
+              style={styles.secondaryActionBtn}
+              onPress={handleListJsonFiles}
+            >
+              <View style={styles.actionBtnContent}>
+                <Text style={styles.actionBtnIcon}>📁</Text>
+                <View style={styles.actionBtnTextContainer}>
+                  <Text style={styles.actionBtnTitle}>JSON Files</Text>
+                  <Text style={styles.actionBtnSubtitle}>View saved files</Text>
                 </View>
               </View>
             </TouchableOpacity>

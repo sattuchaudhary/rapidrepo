@@ -5,9 +5,9 @@ import { initDatabase, bulkInsertVehicles, clearVehicles, countVehicles } from '
 
 // Simple sync configuration
 const SIMPLE_SYNC_CONFIG = {
-  maxRecordsPerBatch: 100000, // 1 lakh records per batch
+  maxRecordsPerBatch: 50000, // 50K records per batch (faster)
   timeout: 300000, // 5 minutes per batch
-  delayBetweenBatches: 1000, // 1 second delay between batches
+  delayBetweenBatches: 500, // 0.5 second delay between batches (faster)
   maxRetries: 3
 };
 
@@ -72,14 +72,22 @@ export const downloadAndConvert = async (offset = 0, onProgress = null) => {
 // Convert JSON array to SQLite
 const convertJsonToSqlite = async (jsonData, isFirstBatch = false) => {
   try {
+    console.log(`🔄 Starting JSON to SQLite conversion: ${jsonData.length} records`);
+    
     // Initialize database
     await initDatabase();
+    console.log('✅ Database initialized');
     
     // Clear existing data if this is first batch
     if (isFirstBatch && jsonData.length > 0) {
       console.log('🧹 Clearing existing data for fresh sync');
       await clearVehicles();
+      console.log('✅ Existing data cleared');
     }
+    
+    // Check current count before insertion
+    const countBefore = await countVehicles();
+    console.log(`📊 Records before insertion: ${countBefore}`);
     
     // Insert new data
     const inserted = await bulkInsertVehicles(jsonData, {
@@ -87,7 +95,16 @@ const convertJsonToSqlite = async (jsonData, isFirstBatch = false) => {
       reindex: true
     });
     
+    // Check count after insertion
+    const countAfter = await countVehicles();
+    console.log(`📊 Records after insertion: ${countAfter}`);
     console.log(`✅ Converted ${inserted} records to SQLite`);
+    
+    // Verify insertion
+    if (inserted !== jsonData.length) {
+      console.warn(`⚠️ Insertion mismatch: expected ${jsonData.length}, got ${inserted}`);
+    }
+    
     return inserted;
   } catch (error) {
     console.error('JSON to SQLite conversion failed:', error);

@@ -416,7 +416,7 @@ router.post('/create-snapshot', authenticateUnifiedToken, requireAdmin, async (r
 // Simple dump endpoint for mobile app (1 lakh records max per batch)
 router.get('/simple-dump', authenticateUnifiedToken, async (req, res) => {
   try {
-    const { limit = 100000, offset = 0 } = req.query;
+    const { limit = 50000, offset = 0 } = req.query;
     
     const tenantId = req.user?.tenantId;
     const tenantName = req.user?.tenantName;
@@ -444,7 +444,7 @@ router.get('/simple-dump', authenticateUnifiedToken, async (req, res) => {
     // Collect data from all collections
     const allData = [];
     let currentOffset = parseInt(offset);
-    let remainingLimit = Math.min(parseInt(limit), 100000); // Max 1 lakh records
+    let remainingLimit = Math.min(parseInt(limit), 50000); // Max 50K records per batch
     
     for (const collectionName of collections) {
       if (remainingLimit <= 0) break;
@@ -530,6 +530,152 @@ router.get('/simple-dump', authenticateUnifiedToken, async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Simple dump failed',
+      error: error.message 
+    });
+  }
+});
+
+// Get new records since timestamp (for incremental sync)
+router.get('/new-records', authenticateUnifiedToken, async (req, res) => {
+  try {
+    const { since, limit = 50000, offset = 0 } = req.query;
+    
+    if (!since) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'since timestamp is required' 
+      });
+    }
+    
+    const tenantId = req.user?.tenantId;
+    const tenantName = req.user?.tenantName;
+    let tenant = null;
+    
+    if (tenantId) tenant = await Tenant.findById(tenantId);
+    if (!tenant && tenantName) tenant = await Tenant.findOne({ name: tenantName });
+    if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
+
+    const conn = await getTenantDB(tenant.name);
+    const collections = ['two_wheeler_data', 'four_wheeler_data', 'commercial_data'];
+    
+    // Parse since timestamp
+    const sinceDate = new Date(since);
+    if (isNaN(sinceDate.getTime())) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid since timestamp format' 
+      });
+    }
+    
+    // Get new records from all collections
+    const allNewData = [];
+    let currentOffset = parseInt(offset);
+    let remainingLimit = Math.min(parseInt(limit), 50000);
+    
+    for (const collectionName of collections) {
+      if (remainingLimit <= 0) break;
+      
+      try {
+        const Model = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), collectionName);
+        
+        // Find records created/updated after since timestamp
+        const newDocs = await Model.find({
+          $or: [
+            { createdAt: { $gt: sinceDate } },
+            { updatedAt: { $gt: sinceDate } },
+            { uploadDate: { $gt: sinceDate } }
+          ]
+        }, {
+          registrationNumber: 1,
+          chassisNumber: 1,
+          agreementNumber: 1,
+          bankName: 1,
+          vehicleMake: 1,
+          customerName: 1,
+          address: 1,
+          _id: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          uploadDate: 1
+        })
+        .sort({ _id: 1 })
+        .skip(currentOffset)
+        .limit(remainingLimit)
+        .lean();
+
+        // Transform data for mobile app
+        const transformedData = newDocs.map(doc => ({
+          _id: doc._id,
+          vehicleType: collectionName.includes('two') ? 'TwoWheeler' : 
+                     collectionName.includes('four') ? 'FourWheeler' : 'Commercial',
+          regNo: doc.registrationNumber || '',
+          reg_no: doc.registrationNumber || '',
+          chassisNo: doc.chassisNumber || '',
+          chassis_no: doc.chassisNumber || '',
+          loanNo: doc.agreementNumber || '',
+          loan_no: doc.agreementNumber || '',
+          bank: doc.bankName || '',
+          bank_name: doc.bankName || '',
+          make: doc.vehicleMake || '',
+          manufacturer: doc.vehicleMake || '',
+          customerName: doc.customerName || '',
+          customer_name: doc.customerName || '',
+          address: doc.address || '',
+          customer_address: doc.address || '',
+          createdAt: doc.createdAt || doc.uploadDate,
+          updatedAt: doc.updatedAt || doc.uploadDate
+        }));
+
+        allNewData.push(...transformedData);
+        remainingLimit -= transformedData.length;
+        currentOffset = 0; // Reset offset for next collection
+        
+      } catch (error) {
+        console.error(`Error processing ${collectionName} for new records:`, error);
+        // Continue with other collections
+      }
+    }
+
+    // Get total count of new records
+    let totalNewRecords = 0;
+    for (const collectionName of collections) {
+      try {
+        const Model = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), collectionName);
+        const count = await Model.countDocuments({
+          $or: [
+            { createdAt: { $gt: sinceDate } },
+            { updatedAt: { $gt: sinceDate } },
+            { uploadDate: { $gt: sinceDate } }
+          ]
+        });
+        totalNewRecords += count;
+      } catch (error) {
+        console.error(`Error counting new records in ${collectionName}:`, error);
+      }
+    }
+
+    const hasMore = (parseInt(offset) + allNewData.length) < totalNewRecords;
+    const nextOffset = parseInt(offset) + allNewData.length;
+
+    res.json({
+      success: true,
+      data: allNewData,
+      totalNewRecords,
+      currentBatch: allNewData.length,
+      offset: parseInt(offset),
+      hasMore,
+      nextOffset,
+      since: since,
+      tenant: tenant.name
+    });
+
+    console.log(`New records query completed: ${allNewData.length} new records since ${since} for ${tenant.name}`);
+
+  } catch (error) {
+    console.error('New records query error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'New records query failed',
       error: error.message 
     });
   }

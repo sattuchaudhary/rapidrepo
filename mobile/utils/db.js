@@ -78,6 +78,8 @@ export const initDatabase = async () => {
     await executeSql(db, 'PRAGMA journal_mode=WAL');
     await executeSql(db, 'PRAGMA synchronous=NORMAL');
     await executeSql(db, 'PRAGMA busy_timeout=5000');
+    await executeSql(db, 'PRAGMA cache_size=10000');
+    console.log('✅ Database PRAGMA settings applied');
   } catch (e) {
     console.log('PRAGMA setup warning:', e?.message || e);
   }
@@ -118,9 +120,11 @@ export const countVehicles = async () => {
     await initDatabase();
     const db = getDatabase();
     const res = await executeSql(db, 'SELECT COUNT(1) as c FROM vehicles');
-    return res?.rows?._array?.[0]?.c || 0;
+    const count = res?.rows?._array?.[0]?.c || 0;
+    console.log(`📊 Database count query result: ${count}`);
+    return count;
   } catch (error) {
-    console.log('Error counting vehicles:', error.message);
+    console.error('Error counting vehicles:', error.message);
     return 0;
   }
 };
@@ -186,7 +190,8 @@ export const bulkInsertVehicles = async (items, options = {}) => {
               // Derive a stable id if _id missing
               const rawId = v?._id || v?.id || (v?._id && v?._id.$oid) || v?.mongoId || v?.mongo_id;
               const derivedId = String(rawId || `${regNo}#${chassisNo}`);
-              db.runSync(sql, [
+              
+              const result = db.runSync(sql, [
                 derivedId,
                 String(v.vehicleType || v.vehicle_type || ''),
                 regNo,
@@ -199,7 +204,13 @@ export const bulkInsertVehicles = async (items, options = {}) => {
                 String(v.customerName || v.customer_name || ''),
                 String(v.address || v.customer_address || '')
               ]);
+              
               inserted++;
+              
+              // Log every 100th insertion for debugging
+              if (inserted % 100 === 0) {
+                console.log(`📝 Inserted ${inserted} records so far...`);
+              }
             } catch (individualError) {
               console.error('Individual insert failed:', individualError);
             }
