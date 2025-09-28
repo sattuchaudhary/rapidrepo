@@ -18,24 +18,33 @@ const VersionChecker = ({ onUpdateAvailable }) => {
     setChecking(true);
     
     try {
+      console.log('Checking for updates...');
+      console.log('Current version:', versionManager.getCurrentVersion());
+      
       // First check for OTA updates
       const otaUpdate = await otaUpdateManager.forceCheckForUpdates();
       
       if (otaUpdate) {
-        // OTA update is available and user was notified
+        console.log('OTA update available');
         setChecking(false);
         return;
       }
       
+      console.log('No OTA update, checking app store updates...');
+      
       // If no OTA update, check for app store updates
-      const updateInfo = await versionManager.getUpdateInfo();
+      const updateInfo = await versionManager.forceCheckForUpdates();
+      
+      console.log('Update info:', updateInfo);
       
       if (updateInfo) {
+        console.log('App store update available');
         onUpdateAvailable(updateInfo);
       } else {
+        console.log('No app store updates available');
         Alert.alert(
           'No Updates',
-          'You are using the latest version of Rapid Repo!',
+          `You are using the latest version of Rapid Repo!\n\nCurrent Version: ${versionManager.getCurrentVersion()}`,
           [{ text: 'OK' }]
         );
       }
@@ -43,7 +52,7 @@ const VersionChecker = ({ onUpdateAvailable }) => {
       console.error('Version check failed:', error);
       Alert.alert(
         'Check Failed',
-        'Unable to check for updates. Please try again later.',
+        `Unable to check for updates. Please try again later.\n\nError: ${error.message}`,
         [{ text: 'OK' }]
       );
     } finally {

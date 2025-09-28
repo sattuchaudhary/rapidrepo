@@ -15,6 +15,7 @@ import { countVehicles, initDatabase } from '../utils/db';
 import DownloadProgress from '../components/DownloadProgress';
 import { validateProgressData } from '../utils/errorHandler';
 import { testDatabase } from '../utils/dbTest';
+import { simpleSync, getSyncStatus, markSyncCompleted } from '../utils/simpleSync';
 import * as SecureStore from 'expo-secure-store';
 
 const SyncScreen = () => {
@@ -22,7 +23,9 @@ const SyncScreen = () => {
   const [localCount, setLocalCount] = useState(0);
   const [lastSync, setLastSync] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [syncMethod, setSyncMethod] = useState('optimized'); // 'optimized' | 'legacy' | 'missing_only'
+  const [syncMethod, setSyncMethod] = useState('simple'); // 'simple' | 'optimized' | 'legacy' | 'missing_only'
+  const [progress, setProgress] = useState(null);
+  const [needsSync, setNeedsSync] = useState(false);
 
   useEffect(() => {
     loadLocalData();
@@ -42,16 +45,45 @@ const SyncScreen = () => {
       const count = await countVehicles();
       setLocalCount(count);
       
-      const metadata = await SecureStore.getItemAsync('offline_metadata');
-      if (metadata) {
-        const parsed = JSON.parse(metadata);
-        setLastSync(parsed.downloadedAt);
-      }
+      // Get sync status
+      const syncStatus = await getSyncStatus();
+      setNeedsSync(syncStatus.needsSync);
+      setLastSync(syncStatus.lastSync);
+      
     } catch (error) {
       console.error('Error loading local data:', error);
       // Set default values on error
       setLocalCount(0);
       setLastSync(null);
+      setNeedsSync(false);
+    }
+  };
+
+  const handleSimpleSync = async () => {
+    setIsDownloading(true);
+    setProgress({ processed: 0, total: 0, percentage: 0 });
+    
+    try {
+      const result = await simpleSync((progressData) => {
+        setProgress(progressData);
+      });
+      
+      if (result.success) {
+        await markSyncCompleted();
+        Alert.alert(
+          'Sync Successful',
+          `Downloaded ${result.totalDownloaded.toLocaleString()} records in ${result.batchesProcessed} batches!\n\nInserted: ${result.totalInserted.toLocaleString()}\nCleaned: ${result.extraRecordsCleaned.toLocaleString()}`,
+          [{ text: 'OK', onPress: loadLocalData }]
+        );
+      } else {
+        Alert.alert('Sync Failed', result.message || 'Unknown error occurred');
+      }
+    } catch (error) {
+      console.error('Simple sync error:', error);
+      Alert.alert('Sync Error', error.message || 'Failed to sync data');
+    } finally {
+      setIsDownloading(false);
+      setProgress(null);
     }
   };
 
@@ -168,6 +200,24 @@ const SyncScreen = () => {
         <TouchableOpacity
           style={[
             styles.methodButton,
+            syncMethod === 'simple' && styles.methodButtonActive
+          ]}
+          onPress={() => setSyncMethod('simple')}
+        >
+          <Text style={[
+            styles.methodButtonText,
+            syncMethod === 'simple' && styles.methodButtonTextActive
+          ]}>
+            Simple (Recommended)
+          </Text>
+          <Text style={styles.methodDescription}>
+            1 lakh records per batch, auto cleanup, most reliable
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.methodButton,
             syncMethod === 'optimized' && styles.methodButtonActive
           ]}
           onPress={() => setSyncMethod('optimized')}
@@ -224,11 +274,13 @@ const SyncScreen = () => {
         <TouchableOpacity
           style={[styles.syncButton, isDownloading && styles.syncButtonDisabled]}
           onPress={
-            syncMethod === 'optimized'
-              ? handleOptimizedSync
-              : syncMethod === 'legacy'
-                ? handleLegacySync
-                : handleMissingOnlySync
+            syncMethod === 'simple'
+              ? handleSimpleSync
+              : syncMethod === 'optimized'
+                ? handleOptimizedSync
+                : syncMethod === 'legacy'
+                  ? handleLegacySync
+                  : handleMissingOnlySync
           }
           disabled={isDownloading}
         >
@@ -258,8 +310,28 @@ const SyncScreen = () => {
         </TouchableOpacity>
       </View>
 
+      {isDownloading && progress && (
+        <View style={styles.progressContainer}>
+          <Text style={styles.progressTitle}>Sync Progress</Text>
+          <DownloadProgress progress={progress} />
+          {syncMethod === 'simple' && (
+            <View style={styles.simpleProgressInfo}>
+              <Text style={styles.progressText}>
+                Batch: {progress.currentBatch || 0} records
+              </Text>
+              <Text style={styles.progressText}>
+                Inserted: {progress.inserted || 0} records
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
       <View style={styles.infoContainer}>
         <Text style={styles.infoTitle}>Sync Information</Text>
+        <Text style={styles.infoText}>
+          • Simple method: 1 lakh records per batch, most reliable
+        </Text>
         <Text style={styles.infoText}>
           • Optimized method downloads all data in one compressed request
         </Text>
@@ -272,6 +344,11 @@ const SyncScreen = () => {
         <Text style={styles.infoText}>
           • Sync may take several minutes for large datasets
         </Text>
+        {needsSync && (
+          <Text style={[styles.infoText, { color: '#FF5722', fontWeight: 'bold' }]}>
+            ⚠️ Sync recommended - data may be outdated
+          </Text>
+        )}
       </View>
 
       {/* Global overlay handles progress; keep screen light */}
@@ -404,6 +481,29 @@ const styles = StyleSheet.create({
   infoText: {
     fontSize: 14,
     color: '#666',
+    marginBottom: 4,
+  },
+  progressContainer: {
+    backgroundColor: 'white',
+    margin: 20,
+    padding: 16,
+    borderRadius: 8,
+  },
+  progressTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  simpleProgressInfo: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#f0f8ff',
+    borderRadius: 6,
+  },
+  progressText: {
+    fontSize: 14,
+    color: '#1976D2',
     marginBottom: 4,
   },
 });

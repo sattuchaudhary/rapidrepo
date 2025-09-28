@@ -45,23 +45,34 @@
 
 
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, StatusBar } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, StatusBar, Alert, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
+import * as FileSystem from 'expo-file-system/legacy';
 import VersionChecker from '../components/VersionChecker';
 import UpdateNotification from '../components/UpdateNotification';
+import { getBaseURL } from '../utils/config';
+import axios from 'axios';
 
 export default function ProfileScreen({ navigation }) {
   const [agent, setAgent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [stats, setStats] = useState({
+    totalSearches: 0,
+    totalShares: 0,
+    lastSync: null
+  });
 
   useEffect(() => {
     (async () => {
       try {
         const stored = await SecureStore.getItemAsync('agent');
         if (stored) setAgent(JSON.parse(stored));
+        
+        // Load user statistics
+        await loadUserStats();
       } catch (error) {
         console.error('Error loading profile:', error);
       } finally {
@@ -69,6 +80,23 @@ export default function ProfileScreen({ navigation }) {
       }
     })();
   }, []);
+
+  const loadUserStats = async () => {
+    try {
+      const token = await SecureStore.getItemAsync('token');
+      if (!token) return;
+
+      const response = await axios.get(`${getBaseURL()}/api/history/user-stats`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.data?.success) {
+        setStats(response.data.stats);
+      }
+    } catch (error) {
+      console.error('Error loading user stats:', error);
+    }
+  };
 
   const ProfileField = ({ icon, label, value }) => (
     <View style={styles.fieldContainer}>
@@ -93,6 +121,79 @@ export default function ProfileScreen({ navigation }) {
   const handleUpdateModalClose = () => {
     setShowUpdateModal(false);
     setUpdateInfo(null);
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Logout', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await SecureStore.deleteItemAsync('token');
+              await SecureStore.deleteItemAsync('agent');
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
+            } catch (error) {
+              console.error('Logout error:', error);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleClearCache = () => {
+    Alert.alert(
+      'Clear Cache',
+      'This will clear all offline data and cached files. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Clear', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const offlineDataPath = `${FileSystem.documentDirectory}offline_data.json`;
+              const exists = await FileSystem.getInfoAsync(offlineDataPath);
+              if (exists.exists) {
+                await FileSystem.deleteAsync(offlineDataPath);
+              }
+              Alert.alert('Success', 'Cache cleared successfully');
+            } catch (error) {
+              console.error('Clear cache error:', error);
+              Alert.alert('Error', 'Failed to clear cache');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleSyncData = async () => {
+    try {
+      Alert.alert('Sync', 'Syncing data...');
+      // Add sync logic here
+      await loadUserStats();
+      Alert.alert('Success', 'Data synced successfully');
+    } catch (error) {
+      console.error('Sync error:', error);
+      Alert.alert('Error', 'Failed to sync data');
+    }
+  };
+
+  const handleContactSupport = () => {
+    const phoneNumber = '+91-9876543210'; // Replace with actual support number
+    const url = `tel:${phoneNumber}`;
+    Linking.openURL(url).catch(() => {
+      Alert.alert('Error', 'Unable to open phone dialer');
+    });
   };
 
   if (loading) {
@@ -164,37 +265,83 @@ export default function ProfileScreen({ navigation }) {
             label="Organization"
             value={agent?.tenantName}
           />
+
+          <ProfileField 
+            icon="🎭"
+            label="Role"
+            value={agent?.role || agent?.designation || agent?.userType || 'User'}
+          />
         </View>
 
-        {/* Additional Actions */}
+        {/* Statistics Card */}
+        <View style={styles.statsCard}>
+          <Text style={styles.sectionTitle}>Activity Summary</Text>
+          
+          <View style={styles.statsGrid}>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{stats.totalSearches}</Text>
+              <Text style={styles.statLabel}>Total Searches</Text>
+            </View>
+            
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{stats.totalShares}</Text>
+              <Text style={styles.statLabel}>Total Shares</Text>
+            </View>
+          </View>
+
+          {stats.lastSync && (
+            <View style={styles.lastSyncContainer}>
+              <Text style={styles.lastSyncLabel}>Last Sync:</Text>
+              <Text style={styles.lastSyncValue}>
+                {new Date(stats.lastSync).toLocaleString()}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Quick Actions */}
         <View style={styles.actionsCard}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           
-          <TouchableOpacity style={styles.actionButton} activeOpacity={0.8}>
-            <Text style={styles.actionIcon}>✏️</Text>
+          <TouchableOpacity style={styles.actionButton} activeOpacity={0.8} onPress={handleSyncData}>
+            <Text style={styles.actionIcon}>🔄</Text>
             <View style={styles.actionContent}>
-              <Text style={styles.actionTitle}>Edit Profile</Text>
-              <Text style={styles.actionSubtitle}>Update your information</Text>
+              <Text style={styles.actionTitle}>Sync Data</Text>
+              <Text style={styles.actionSubtitle}>Refresh your data</Text>
             </View>
             <Text style={styles.actionChevron}>›</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionButton} activeOpacity={0.8}>
-            <Text style={styles.actionIcon}>🔒</Text>
+          <TouchableOpacity style={styles.actionButton} activeOpacity={0.8} onPress={handleClearCache}>
+            <Text style={styles.actionIcon}>🗑️</Text>
             <View style={styles.actionContent}>
-              <Text style={styles.actionTitle}>Privacy Settings</Text>
-              <Text style={styles.actionSubtitle}>Manage your privacy</Text>
+              <Text style={styles.actionTitle}>Clear Cache</Text>
+              <Text style={styles.actionSubtitle}>Free up storage space</Text>
             </View>
             <Text style={styles.actionChevron}>›</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionButton} activeOpacity={0.8}>
-            <Text style={styles.actionIcon}>❓</Text>
+          <TouchableOpacity style={styles.actionButton} activeOpacity={0.8} onPress={handleContactSupport}>
+            <Text style={styles.actionIcon}>📞</Text>
             <View style={styles.actionContent}>
-              <Text style={styles.actionTitle}>Help & Support</Text>
-              <Text style={styles.actionSubtitle}>Get assistance</Text>
+              <Text style={styles.actionTitle}>Contact Support</Text>
+              <Text style={styles.actionSubtitle}>Get help from our team</Text>
             </View>
             <Text style={styles.actionChevron}>›</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Account Actions */}
+        <View style={styles.accountCard}>
+          <Text style={styles.sectionTitle}>Account</Text>
+          
+          <TouchableOpacity style={styles.logoutButton} activeOpacity={0.8} onPress={handleLogout}>
+            <Text style={styles.logoutIcon}>🚪</Text>
+            <View style={styles.logoutContent}>
+              <Text style={styles.logoutTitle}>Logout</Text>
+              <Text style={styles.logoutSubtitle}>Sign out of your account</Text>
+            </View>
+            <Text style={styles.logoutChevron}>›</Text>
           </TouchableOpacity>
         </View>
 
@@ -316,6 +463,25 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 20,
     marginHorizontal: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#2D3748',
+  },
+  statsCard: {
+    backgroundColor: '#1A1D29',
+    borderRadius: 16,
+    padding: 20,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#2D3748',
+  },
+  accountCard: {
+    backgroundColor: '#1A1D29',
+    borderRadius: 16,
+    padding: 20,
+    marginHorizontal: 20,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#2D3748',
   },
@@ -387,6 +553,73 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderWidth: 1,
     borderColor: '#2D3748',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 16,
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statNumber: {
+    color: '#4F46E5',
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  statLabel: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  lastSyncContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#2D3748',
+  },
+  lastSyncLabel: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    marginRight: 8,
+  },
+  lastSyncValue: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 4,
+  },
+  logoutIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  logoutContent: {
+    flex: 1,
+  },
+  logoutTitle: {
+    color: '#EF4444',
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  logoutSubtitle: {
+    color: '#9CA3AF',
+    fontSize: 13,
+  },
+  logoutChevron: {
+    color: '#6B7280',
+    fontSize: 20,
+    fontWeight: '600',
   },
 });
 

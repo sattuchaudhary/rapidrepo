@@ -146,3 +146,4 @@ class OTAUpdateManager {
 }
 
 export default new OTAUpdateManager();
+

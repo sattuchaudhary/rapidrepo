@@ -5,9 +5,9 @@ const auth = require('../middleware/auth');
 // Version management configuration
 const VERSION_CONFIG = {
   currentVersion: '1.0.0',
-  latestVersion: '1.0.0', // Update this when new version is released
+  latestVersion: '1.0.2', // Update this when new version is released
   forceUpdate: false, // Set to true for critical updates
-  updateMessage: 'New features and bug fixes available!',
+  updateMessage: 'Version 1.0.2 - Bug fixes and performance improvements!',
   downloadUrl: {
     android: 'https://play.google.com/store/apps/details?id=com.rapidbuddy.rapidrepo',
     ios: 'https://apps.apple.com/app/rapid-repo/id123456789', // Replace with actual App Store URL
@@ -122,3 +122,4 @@ router.get('/version-config', auth, async (req, res) => {
 });
 
 module.exports = router;
+

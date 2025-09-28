@@ -590,6 +590,7 @@ class SQLiteOfflineDB {
 // Background task helpers are defined once in utils/backgroundTasks
 import { registerOfflineBackgroundSync, unregisterOfflineBackgroundSync } from '../utils/backgroundTasks';
 import { countVehicles, searchByRegSuffix, searchByChassis, searchByRegSuffixPartial, searchByRegNoSuffixLike, initDatabase, bulkInsertVehicles, rebuildSearchIndex } from '../utils/db';
+import { simpleSync, markSyncCompleted } from '../utils/simpleSync';
 
 // Main Dashboard Component
 export default function DashboardScreen({ navigation }) {
@@ -890,83 +891,40 @@ export default function DashboardScreen({ navigation }) {
   const syncViaJsonDump = async () => {
     if (downloading) return;
     setDownloading(true);
-    setDownloadProgress(2);
-    setDownloadStatus('Requesting dump...');
+    setDownloadProgress(0);
+    setDownloadStatus('Starting simple sync...');
 
     try {
-      const token = await SecureStore.getItemAsync('token');
-      if (!token) {
-        setDownloading(false);
-        Alert.alert('Login required', 'Please login again.');
-        return;
-      }
-
-      const res = await axios.get(`${getBaseURL()}/api/tenant/data/offline-dump`, {
-        headers: { Authorization: `Bearer ${token}`, 'Accept-Encoding': 'gzip, deflate' },
-        timeout: 1200000,
-        maxContentLength: 500 * 1024 * 1024,
-        maxBodyLength: 500 * 1024 * 1024
+      const result = await simpleSync((progressData) => {
+        setDownloadProgress(progressData.percentage);
+        setDownloadStatus(`Batch ${progressData.currentBatch || 0} records - ${progressData.percentage}% complete`);
       });
-
-      if (!res?.data?.success) {
-        throw new Error(res?.data?.message || 'Failed to get dump');
+      
+      if (result.success) {
+        await markSyncCompleted();
+        setDownloadProgress(100);
+        setDownloadStatus('Sync completed successfully!');
+        
+        const updatedCount = await countVehicles();
+        setLocalCount(typeof updatedCount === 'number' ? updatedCount : 0);
+        setLastDownloadedAt(new Date().toLocaleString());
+        setLastSyncTime(new Date().toISOString());
+        
+        Alert.alert(
+          'Sync Successful',
+          `Downloaded ${result.totalDownloaded.toLocaleString()} records in ${result.batchesProcessed} batches!\n\nInserted: ${result.totalInserted.toLocaleString()}\nCleaned: ${result.extraRecordsCleaned.toLocaleString()}`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        throw new Error(result.message || 'Sync failed');
       }
 
-      const payload = res.data;
-      const items = payload?.data || [];
-      const tenant = payload?.tenant || 'tenant';
-      const total = payload?.totalRecords || items.length || 0;
-
-      setDownloadProgress(10);
-      setDownloadStatus(`Saving ${total.toLocaleString()} records...`);
-
-      const filename = `offline_dump_${tenant}_${Date.now()}.json`;
-      const target = `${FileSystem.documentDirectory}${filename}`;
-      const jsonString = JSON.stringify({ tenant, totalRecords: total, data: items });
-      await FileSystem.writeAsStringAsync(target, jsonString);
-
-      setDownloadProgress(20);
-      setDownloadStatus('Importing to offline search...');
-
-      await initDatabase();
-      let inserted = 0;
-      const CHUNK = 2000;
-      for (let i = 0; i < items.length; i += CHUNK) {
-        const chunk = items.slice(i, i + CHUNK);
-        try {
-          inserted += await bulkInsertVehicles(chunk, { reindex: false });
-        } catch (e) {
-          console.log('Insert chunk failed, continuing:', e?.message || e);
-        }
-        const processed = Math.min(i + CHUNK, items.length);
-        const pct = 20 + Math.round((processed / items.length) * 70);
-        setDownloadProgress(pct);
-        setDownloadStatus(`Imported ${processed.toLocaleString()} / ${items.length.toLocaleString()}`);
-        await new Promise((r) => setTimeout(r, 0));
-      }
-
-      setDownloadStatus('Rebuilding search index...');
-      setDownloadProgress(95);
-      await rebuildSearchIndex();
-
-      const nowIso = new Date().toISOString();
-      await SecureStore.setItemAsync('lastSyncTime', nowIso);
-      await SecureStore.setItemAsync('offline_metadata', JSON.stringify({ totalRecords: inserted, downloadedAt: nowIso, tenant, method: 'json_dump' }));
-
-      const updatedCount = await countVehicles();
-      setLocalCount(typeof updatedCount === 'number' ? updatedCount : 0);
-      setLastDownloadedAt(new Date().toLocaleString());
-      setLastSyncTime(nowIso);
-
-      setDownloadProgress(100);
-      setDownloadStatus(`Sync complete: ${inserted.toLocaleString()} records.`);
-      Alert.alert('Sync Complete', `Downloaded and imported ${inserted.toLocaleString()} records.`);
-    } catch (e) {
-      console.error('JSON sync failed:', e);
-      setDownloadStatus(e?.message || 'Sync failed');
-      Alert.alert('Sync Failed', e?.message || 'Unable to sync');
+    } catch (error) {
+      console.error('Sync error:', error);
+      Alert.alert('Sync Error', error.message || 'Failed to sync data');
+      setDownloadStatus('Sync failed');
     } finally {
-      setTimeout(() => setDownloading(false), 800);
+      setTimeout(() => setDownloading(false), 1000);
     }
   };
 

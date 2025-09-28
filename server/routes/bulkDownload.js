@@ -413,6 +413,128 @@ router.post('/create-snapshot', authenticateUnifiedToken, requireAdmin, async (r
   }
 });
 
+// Simple dump endpoint for mobile app (1 lakh records max per batch)
+router.get('/simple-dump', authenticateUnifiedToken, async (req, res) => {
+  try {
+    const { limit = 100000, offset = 0 } = req.query;
+    
+    const tenantId = req.user?.tenantId;
+    const tenantName = req.user?.tenantName;
+    let tenant = null;
+    
+    if (tenantId) tenant = await Tenant.findById(tenantId);
+    if (!tenant && tenantName) tenant = await Tenant.findOne({ name: tenantName });
+    if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
+
+    const conn = await getTenantDB(tenant.name);
+    const collections = ['two_wheeler_data', 'four_wheeler_data', 'commercial_data'];
+    
+    // Get total count across all collections
+    let totalRecords = 0;
+    for (const collectionName of collections) {
+      try {
+        const Model = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), collectionName);
+        const count = await Model.countDocuments({});
+        totalRecords += count;
+      } catch (error) {
+        console.error(`Error counting ${collectionName}:`, error);
+      }
+    }
+
+    // Collect data from all collections
+    const allData = [];
+    let currentOffset = parseInt(offset);
+    let remainingLimit = Math.min(parseInt(limit), 100000); // Max 1 lakh records
+    
+    for (const collectionName of collections) {
+      if (remainingLimit <= 0) break;
+      
+      try {
+        const Model = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), collectionName);
+        const collectionCount = await Model.countDocuments({});
+        
+        // Skip if offset is beyond this collection
+        if (currentOffset >= collectionCount) {
+          currentOffset -= collectionCount;
+          continue;
+        }
+        
+        // Calculate how many records to fetch from this collection
+        const skipInCollection = currentOffset;
+        const limitInCollection = Math.min(remainingLimit, collectionCount - skipInCollection);
+        
+        const docs = await Model.find({}, {
+          registrationNumber: 1,
+          chassisNumber: 1,
+          agreementNumber: 1,
+          bankName: 1,
+          vehicleMake: 1,
+          customerName: 1,
+          address: 1,
+          _id: 1
+        })
+        .sort({ _id: 1 })
+        .skip(skipInCollection)
+        .limit(limitInCollection)
+        .lean();
+
+        // Transform data for mobile app
+        const transformedData = docs.map(doc => ({
+          _id: doc._id,
+          vehicleType: collectionName.includes('two') ? 'TwoWheeler' : 
+                     collectionName.includes('four') ? 'FourWheeler' : 'Commercial',
+          regNo: doc.registrationNumber || '',
+          reg_no: doc.registrationNumber || '', // Alternative field name
+          chassisNo: doc.chassisNumber || '',
+          chassis_no: doc.chassisNumber || '', // Alternative field name
+          loanNo: doc.agreementNumber || '',
+          loan_no: doc.agreementNumber || '', // Alternative field name
+          bank: doc.bankName || '',
+          bank_name: doc.bankName || '', // Alternative field name
+          make: doc.vehicleMake || '',
+          manufacturer: doc.vehicleMake || '', // Alternative field name
+          customerName: doc.customerName || '',
+          customer_name: doc.customerName || '', // Alternative field name
+          address: doc.address || '',
+          customer_address: doc.address || '' // Alternative field name
+        }));
+
+        allData.push(...transformedData);
+        remainingLimit -= transformedData.length;
+        currentOffset = 0; // Reset offset for next collection
+        
+      } catch (error) {
+        console.error(`Error processing ${collectionName}:`, error);
+        // Continue with other collections
+      }
+    }
+
+    const hasMore = (parseInt(offset) + allData.length) < totalRecords;
+    const nextOffset = parseInt(offset) + allData.length;
+
+    res.json({
+      success: true,
+      data: allData,
+      totalRecords,
+      currentBatch: allData.length,
+      offset: parseInt(offset),
+      hasMore,
+      nextOffset,
+      tenant: tenant.name
+    });
+
+    console.log(`Simple dump completed: ${allData.length} records (${offset}-${nextOffset}) for ${tenant.name}`);
+
+  } catch (error) {
+    console.error('Simple dump error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Simple dump failed',
+      error: error.message 
+    });
+  }
+});
+
 // Helper function to create optimized snapshot
 async function createOptimizedSnapshot(tenantName) {
   // This would integrate with your existing snapshot creation logic
