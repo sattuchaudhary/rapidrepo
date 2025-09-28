@@ -1002,9 +1002,9 @@ const MobileUpload = () => {
       return;
     }
 
-    // Validate file size (40MB limit)
-    if (selectedFile.size > 40 * 1024 * 1024) {
-      toast.error('File size must be less than 40MB');
+    // Validate file size (120MB limit)
+    if (selectedFile.size > 120 * 1024 * 1024) {
+      toast.error('File size must be less than 120MB');
       return;
     }
 
