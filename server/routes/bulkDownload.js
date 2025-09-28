@@ -444,7 +444,7 @@ router.get('/simple-dump', authenticateUnifiedToken, async (req, res) => {
     // Collect data from all collections
     const allData = [];
     let currentOffset = parseInt(offset);
-    let remainingLimit = Math.min(parseInt(limit), 50000); // Max 50K records per batch
+    let remainingLimit = Math.min(parseInt(limit), 100000); // Max 1 lakh records per batch
     
     for (const collectionName of collections) {
       if (remainingLimit <= 0) break;
@@ -570,7 +570,7 @@ router.get('/new-records', authenticateUnifiedToken, async (req, res) => {
     // Get new records from all collections
     const allNewData = [];
     let currentOffset = parseInt(offset);
-    let remainingLimit = Math.min(parseInt(limit), 50000);
+    let remainingLimit = Math.min(parseInt(limit), 100000); // Max 1 lakh records per batch
     
     for (const collectionName of collections) {
       if (remainingLimit <= 0) break;

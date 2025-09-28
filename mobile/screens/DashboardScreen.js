@@ -618,6 +618,14 @@ export default function DashboardScreen({ navigation }) {
   const [loadingMessage, setLoadingMessage] = useState('');
   const [isSyncComplete, setIsSyncComplete] = useState(false);
   const [needsSync, setNeedsSync] = useState(false);
+  const [syncProgress, setSyncProgress] = useState({
+    currentBatch: 0,
+    totalBatches: 0,
+    currentOffset: 0,
+    hasMore: false,
+    totalRecords: 0,
+    downloadedRecords: 0
+  });
   
   // Use shared utils/db for offline store used by sync
 
@@ -642,6 +650,18 @@ export default function DashboardScreen({ navigation }) {
         }
 
         console.log(`SQLite loaded with ${count} records`);
+        
+        // Load sync progress if exists
+        const storedProgress = await SecureStore.getItemAsync('sync_progress');
+        if (storedProgress) {
+          try {
+            const progress = JSON.parse(storedProgress);
+            setSyncProgress(progress);
+            console.log('📊 Loaded sync progress:', progress);
+          } catch (error) {
+            console.error('Error loading sync progress:', error);
+          }
+        }
         
         // Check for new records on app startup
         await checkForNewRecords();
@@ -930,11 +950,10 @@ export default function DashboardScreen({ navigation }) {
       
       console.log(`📊 Server total: ${serverTotal}, Local count: ${localCount}`);
 
-      // Check if we need to sync
+      // Check if we need to sync - now using 1 record threshold
       const difference = Math.abs(serverTotal - localCount);
-      const threshold = Math.max(1000, serverTotal * 0.05); // 5% or 1000 records threshold
       
-      if (difference < threshold) {
+      if (difference <= 1) {
         setDownloadProgress(100);
         setDownloadStatus('Already up to date!');
         setShowLoadingOverlay(false);
@@ -943,53 +962,78 @@ export default function DashboardScreen({ navigation }) {
         return;
       }
 
-      setLoadingMessage('Downloading new records...');
-      setDownloadStatus(`Found ${difference.toLocaleString()} new records to download...`);
+      // Calculate total batches needed
+      const batchSize = 100000; // 1 lakh records per batch
+      const totalBatches = Math.ceil(serverTotal / batchSize);
+      
+      // Get current offset from sync progress or start from 0
+      const currentOffset = syncProgress.currentOffset || 0;
+      const currentBatch = Math.floor(currentOffset / batchSize) + 1;
 
-      // Use smart sync that handles both incremental and full sync
-      const { smartSync } = await import('../utils/incrementalSync');
-      const result = await smartSync((progressData) => {
+      setLoadingMessage(`Downloading batch ${currentBatch} of ${totalBatches}...`);
+      setDownloadStatus(`Downloading ${batchSize.toLocaleString()} records per batch...`);
+
+      // Use single batch sync for manual control
+      const { singleBatchSync } = await import('../utils/simpleSync');
+      const result = await singleBatchSync(currentOffset, (progressData) => {
         setDownloadProgress(progressData.percentage || 0);
-        setDownloadStatus(`Downloading: ${progressData.processed || 0}/${progressData.total || 0} records - ${progressData.percentage || 0}% complete`);
+        setDownloadStatus(`Batch ${currentBatch}/${totalBatches}: ${progressData.processed || 0}/${progressData.total || 0} records - ${progressData.percentage || 0}% complete`);
       });
       
       if (result.success) {
         setDownloadProgress(100);
-        setDownloadStatus('Sync completed successfully!');
+        setDownloadStatus(`Batch ${currentBatch} completed successfully!`);
         
-        // Refresh local count and verify
+        // Update sync progress
+        const newProgress = {
+          currentBatch: currentBatch,
+          totalBatches: totalBatches,
+          currentOffset: result.nextOffset,
+          hasMore: result.hasMore,
+          totalRecords: result.totalRecords,
+          downloadedRecords: (syncProgress.downloadedRecords || 0) + result.inserted
+        };
+        setSyncProgress(newProgress);
+        
+        // Persist sync progress
+        await SecureStore.setItemAsync('sync_progress', JSON.stringify(newProgress));
+        
+        // Refresh local count
         const updatedCount = await countVehicles();
-        console.log(`📊 Final local count after sync: ${updatedCount}`);
         setLocalCount(typeof updatedCount === 'number' ? updatedCount : 0);
         setLastDownloadedAt(new Date().toLocaleString());
         setLastSyncTime(new Date().toISOString());
         
-        // Persist sync completion flag and timestamp
-        const complete = !result.hasMore;
-        setIsSyncComplete(complete);
-        await SecureStore.setItemAsync('sync_complete_flag', complete ? 'true' : 'false');
-        await SecureStore.setItemAsync('lastSyncTime', new Date().toISOString());
-        
-        // Also set the incremental sync timestamp
-        const { setLastSyncTimestamp } = await import('../utils/incrementalSync');
-        await setLastSyncTimestamp();
-
-        // Force refresh the count display and check for new records
-        await refreshLocalCount();
-        
-        // Show success message based on sync type
-        let message = '';
-        if (result.syncType === 'incremental') {
-          message = `Incremental sync completed!\n\nNew records: ${result.newRecordsInserted?.toLocaleString() || 0}\nTotal local: ${updatedCount.toLocaleString()}`;
-        } else if (result.syncType === 'full') {
-          message = `Full sync completed!\n\nDownloaded: ${result.totalDownloaded?.toLocaleString() || 0} records\nTotal local: ${updatedCount.toLocaleString()}`;
+        // Check if this was the last batch
+        if (!result.hasMore) {
+          setIsSyncComplete(true);
+          await SecureStore.setItemAsync('sync_complete_flag', 'true');
+          await SecureStore.setItemAsync('lastSyncTime', new Date().toISOString());
+          
+          // Reset sync progress
+          const resetProgress = {
+            currentBatch: 0,
+            totalBatches: 0,
+            currentOffset: 0,
+            hasMore: false,
+            totalRecords: 0,
+            downloadedRecords: 0
+          };
+          setSyncProgress(resetProgress);
+          await SecureStore.setItemAsync('sync_progress', JSON.stringify(resetProgress));
+          
+          Alert.alert('Sync Complete!', `All batches downloaded successfully!\n\nTotal records: ${updatedCount.toLocaleString()}\nBatches processed: ${currentBatch}`);
         } else {
-          message = `Sync completed!\n\nTotal local: ${updatedCount.toLocaleString()}`;
+          // More batches to go
+          Alert.alert('Batch Complete!', `Batch ${currentBatch} of ${totalBatches} completed!\n\nDownloaded: ${result.inserted.toLocaleString()} records\nTotal so far: ${updatedCount.toLocaleString()}\n\nClick Sync Data again to download next batch.`, [
+            { text: 'OK' }
+          ]);
         }
         
-        Alert.alert('Sync Successful', message, [{ text: 'OK' }]);
+        // Force refresh the count display
+        await refreshLocalCount();
       } else {
-        throw new Error(result.message || 'Sync failed');
+        throw new Error(result.message || 'Batch sync failed');
       }
 
     } catch (error) {
@@ -1039,11 +1083,10 @@ export default function DashboardScreen({ navigation }) {
       const serverTotal = serverStatsRes.data.totalRecords;
       const localCount = await countVehicles();
       
-      // Check if we need to sync
+      // Check if we need to sync - now using 1 record threshold
       const difference = Math.abs(serverTotal - localCount);
-      const threshold = Math.max(1000, serverTotal * 0.05); // 5% or 1000 records threshold
       
-      const shouldSync = difference >= threshold;
+      const shouldSync = difference > 1;
       setNeedsSync(shouldSync);
       
       console.log(`📊 Sync check: Server=${serverTotal}, Local=${localCount}, Difference=${difference}, NeedsSync=${shouldSync}`);
@@ -1177,6 +1220,29 @@ export default function DashboardScreen({ navigation }) {
         </View>
       </Animated.View>
 
+      {/* Sync Progress Card - Show only when sync is in progress */}
+      {syncProgress.currentBatch > 0 && (
+        <Animated.View style={[styles.syncProgressCard, { opacity: contentFade, transform: [{ translateY: contentSlide }] }]}>
+          <View style={styles.syncProgressHeader}>
+            <Text style={styles.syncProgressTitle}>Sync Progress</Text>
+            <Text style={styles.syncProgressBatch}>Batch {syncProgress.currentBatch} of {syncProgress.totalBatches}</Text>
+          </View>
+          <View style={styles.syncProgressBarContainer}>
+            <View style={styles.syncProgressBar}>
+              <View 
+                style={[
+                  styles.syncProgressFill, 
+                  { width: `${(syncProgress.currentBatch / syncProgress.totalBatches) * 100}%` }
+                ]} 
+              />
+            </View>
+            <Text style={styles.syncProgressText}>
+              {syncProgress.downloadedRecords.toLocaleString()} records downloaded
+            </Text>
+          </View>
+        </Animated.View>
+      )}
+
       {/* Progress Bar - Hidden when overlay is shown */}
       {downloading && !showLoadingOverlay && (
         <ProgressBar progress={downloadProgress || 0} status={downloadStatus || ''} />
@@ -1303,10 +1369,16 @@ export default function DashboardScreen({ navigation }) {
                 </Text>
                 <View style={styles.actionBtnTextContainer}>
                   <Text style={styles.actionBtnTitle}>
-                    {downloading ? 'Syncing...' : (needsSync ? 'Sync Data (New Available!)' : (isSyncComplete ? 'Sync Data (Complete)' : 'Sync Data'))}
+                    {downloading ? 'Syncing...' : 
+                     (syncProgress.currentBatch > 0 ? `Sync Data (Batch ${syncProgress.currentBatch}/${syncProgress.totalBatches})` :
+                      (needsSync ? 'Sync Data (New Available!)' : 
+                       (isSyncComplete ? 'Sync Data (Complete)' : 'Sync Data')))}
                   </Text>
                   <Text style={styles.actionBtnSubtitle}>
-                    {downloading ? 'Please wait' : (needsSync ? 'New records available' : (isSyncComplete ? 'All data downloaded' : 'Continue downloading'))}
+                    {downloading ? 'Please wait' : 
+                     (syncProgress.currentBatch > 0 ? `${syncProgress.downloadedRecords.toLocaleString()} records downloaded` :
+                      (needsSync ? 'New records available' : 
+                       (isSyncComplete ? 'All data downloaded' : 'Start downloading')))}
                   </Text>
                 </View>
               </View>
@@ -1868,5 +1940,51 @@ bottomBar: {
     fontSize: 14,
     fontWeight: '600',
     color: '#3B82F6',
+  },
+  // Sync Progress Card Styles
+  syncProgressCard: {
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+  },
+  syncProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  syncProgressTitle: {
+    color: '#3B82F6',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  syncProgressBatch: {
+    color: '#1D4ED8',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  syncProgressBarContainer: {
+    alignItems: 'center',
+  },
+  syncProgressBar: {
+    width: '100%',
+    height: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  syncProgressFill: {
+    height: '100%',
+    backgroundColor: '#3B82F6',
+    borderRadius: 4,
+  },
+  syncProgressText: {
+    color: '#1D4ED8',
+    fontSize: 12,
+    fontWeight: '500',
   }
 });

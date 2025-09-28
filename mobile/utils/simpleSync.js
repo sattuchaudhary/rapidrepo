@@ -5,9 +5,9 @@ import { initDatabase, bulkInsertVehicles, clearVehicles, countVehicles } from '
 
 // Simple sync configuration
 const SIMPLE_SYNC_CONFIG = {
-  maxRecordsPerBatch: 50000, // 50K records per batch (faster)
-  timeout: 300000, // 5 minutes per batch
-  delayBetweenBatches: 500, // 0.5 second delay between batches (faster)
+  maxRecordsPerBatch: 100000, // 1 lakh records per batch for first time sync
+  timeout: 600000, // 10 minutes per batch (increased for larger batches)
+  delayBetweenBatches: 1000, // 1 second delay between batches
   maxRetries: 3
 };
 
@@ -158,7 +158,32 @@ export const autoCleanup = async () => {
   }
 };
 
-// Complete simple sync function
+// Single batch sync function - downloads only one batch at a time
+export const singleBatchSync = async (offset = 0, onProgress = null) => {
+  try {
+    console.log(`🚀 Starting single batch sync from offset ${offset}...`);
+    
+    const result = await downloadAndConvert(offset, onProgress);
+    
+    console.log(`✅ Batch completed: ${result.downloaded} downloaded, ${result.inserted} inserted`);
+    
+    return {
+      success: true,
+      downloaded: result.downloaded,
+      inserted: result.inserted,
+      hasMore: result.hasMore,
+      nextOffset: result.nextOffset,
+      totalRecords: result.totalRecords,
+      currentOffset: offset
+    };
+    
+  } catch (error) {
+    console.error('Single batch sync failed:', error);
+    throw new Error(`Single batch sync failed: ${error.message}`);
+  }
+};
+
+// Complete simple sync function - for full sync (kept for backward compatibility)
 export const simpleSync = async (onProgress = null) => {
   try {
     console.log('🚀 Starting simple sync...');
@@ -231,11 +256,10 @@ export const isSyncNeeded = async () => {
     const serverTotal = response.data.totalRecords;
     const localCount = await countVehicles();
     
-    // Sync if difference is more than 5%
+    // Sync if difference is more than 1 record
     const difference = Math.abs(serverTotal - localCount);
-    const threshold = Math.max(100, serverTotal * 0.05);
     
-    return difference > threshold;
+    return difference > 1;
   } catch (error) {
     console.error('Sync check failed:', error);
     return false;

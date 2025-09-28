@@ -5,9 +5,9 @@ import { initDatabase, bulkInsertVehicles, countVehicles } from './db';
 
 // Incremental sync configuration
 const INCREMENTAL_SYNC_CONFIG = {
-  maxRecordsPerBatch: 50000, // 50K records per batch (faster)
-  timeout: 300000,
-  delayBetweenBatches: 500, // 0.5 second delay (faster)
+  maxRecordsPerBatch: 100000, // 1 lakh records per batch for first time sync
+  timeout: 600000, // 10 minutes per batch (increased for larger batches)
+  delayBetweenBatches: 1000, // 1 second delay between batches
   maxRetries: 3
 };
 
@@ -49,11 +49,10 @@ export const isIncrementalSyncNeeded = async () => {
     const serverTotal = response.data.totalRecords;
     const localCount = await countVehicles();
     
-    // If difference is more than 5% or 1000 records, sync needed
+    // If difference is more than 1 record, sync needed
     const difference = Math.abs(serverTotal - localCount);
-    const threshold = Math.max(1000, serverTotal * 0.05);
     
-    return difference > threshold;
+    return difference > 1;
   } catch (error) {
     console.error('Incremental sync check failed:', error);
     return false;
