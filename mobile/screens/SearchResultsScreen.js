@@ -101,8 +101,37 @@ export default function SearchResultsScreen({ route, navigation }) {
         const res = await axios.get(`${getBaseURL()}/api/tenants/field-mapping`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        if (res?.data?.success) setFieldMapping(res.data.fieldMapping || null);
-      } catch (_) {}
+        if (res?.data?.success) {
+          console.log('Field mapping received:', res.data.fieldMapping);
+          setFieldMapping(res.data.fieldMapping || null);
+        }
+      } catch (error) {
+        console.error('Error fetching field mapping:', error);
+        // Set default field mapping if API fails
+        setFieldMapping({
+          regNo: true,
+          chassisNo: true,
+          loanNo: true,
+          bank: true,
+          make: true,
+          customerName: true,
+          engineNo: true,
+          emiAmount: true,
+          address: true,
+          branch: true,
+          pos: true,
+          model: true,
+          productName: true,
+          bucket: true,
+          season: true,
+          inYard: false,
+          yardName: false,
+          yardLocation: false,
+          status: true,
+          uploadDate: false,
+          fileName: false
+        });
+      }
     })();
   }, []);
 
@@ -483,7 +512,7 @@ export default function SearchResultsScreen({ route, navigation }) {
           maxLength={4}
         />
       </View>
-      {/* A–Z is default; toggle buttons removed */}
+      
 
       {!!error && <Text style={styles.error}>{error}</Text>}
       
@@ -572,42 +601,106 @@ export default function SearchResultsScreen({ route, navigation }) {
                       <Text style={styles.sectionTitle}>Vehicle Information</Text>
                       {(() => {
                         const fm = fieldMapping || {};
+                        console.log('Field mapping in render (Repo Agent):', fm);
                         const row = (label, value, key, icon='•') => {
-                          if (key in fm && fm[key] === false) return null;
+                          const shouldHide = key in fm && fm[key] === false;
+                          console.log(`Field ${key}: shouldHide=${shouldHide}, value=${fm[key]}`);
+                          // Show field with N/A if disabled, don't hide completely
+                          const displayValue = shouldHide ? 'N/A' : (value ?? '—');
                           return (
                             <View key={label} style={styles.detailRow}>
                               <View style={styles.detailIcon}><Text style={styles.detailIconText}>{icon}</Text></View>
                         <View style={styles.detailContent}>
                                 <Text style={styles.detailLabel}>{label}</Text>
-                                <Text style={styles.detailValue}>{value ?? '—'}</Text>
+                                <Text style={styles.detailValue}>{displayValue}</Text>
                         </View>
                       </View>
                           );
                         };
                         return [
-                          row('Customer Name', detail.customerName, 'customerName', '👤'),
+                          // Required fields only
                           row('Registration Number', detail.regNo, 'regNo', '🔢'),
-                          row('Chassis Number', detail.chassisNo, 'chassisNo', '🔧'),
-                          row('Loan Number', detail.loanNo, 'loanNo', '📄'),
-                          row('Bank', detail.bank, 'bank', '🏦'),
+                          row('Name', detail.customerName, 'customerName', '👤'),
                           row('Make', detail.make, 'make', '🏭'),
-                          row('Engine Number', detail.engineNo, 'engineNo', '⚙️'),
-                          row('EMI Amount', detail.emiAmount, 'emiAmount', '💳'),
-                          row('Address', detail.address, 'address', '📍'),
-                          row('Branch', detail.branch, 'branch', '🏢'),
-                          row('POS', detail.pos, 'pos', '🧾'),
+                          row('Chassis No', detail.chassisNo, 'chassisNo', '🔧'),
+                          row('Engine No', detail.engineNo, 'engineNo', '⚙️'),
                           row('Model', detail.model, 'model', '🚘'),
-                          row('Product Name', detail.productName, 'productName', '🏷️'),
-                          row('Bucket', detail.bucket, 'bucket', '🪣'),
-                          row('Season', detail.season, 'season', '📆'),
-                          row('In Yard', detail.inYard ? 'Yes' : 'No', 'inYard', '🏚️'),
-                          row('Yard Name', detail.yardName, 'yardName', '🏷️'),
-                          row('Yard Location', detail.yardLocation, 'yardLocation', '🗺️'),
-                          row('Status', detail.status, 'status', '📌'),
                           row('Upload Date', detail.uploadDate ? new Date(detail.uploadDate).toLocaleDateString() : '—', 'uploadDate', '🗓️'),
-                          row('File Name', detail.fileName, 'fileName', '📁')
+                          row('Bank', detail.bank, 'bank', '🏦'),
+                          row('Branch', detail.branch, 'branch', '🏢'),
+                          row('Agreement No', detail.loanNo, 'loanNo', '📄'),
+                          row('Emi', detail.emiAmount, 'emiAmount', '💳'),
+                          row('POS', detail.pos, 'pos', '🧾'),
+                          row('BKTS', detail.bucket, 'bucket', '🪣'),
+                          
+                          // Commented out fields for future use
+                          // row('Address', detail.address, 'address', '📍'),
+                          // row('Product Name', detail.productName, 'productName', '🏷️'),
+                          // row('Season', detail.season, 'season', '📆'),
+                          // row('In Yard', detail.inYard ? 'Yes' : 'No', 'inYard', '🏚️'),
+                          // row('Yard Name', detail.yardName, 'yardName', '🏷️'),
+                          // row('Yard Location', detail.yardLocation, 'yardLocation', '🗺️'),
+                          // row('Status', detail.status, 'status', '📌'),
+                          // row('File Name', detail.fileName, 'fileName', '📁')
                         ];
                       })()}
+                    </View>
+
+                    {/* Confirmed by Section */}
+                    <View style={styles.detailsSection}>
+                      <Text style={styles.sectionTitle}>Confirmed By</Text>
+                      
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>👤</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>1st Name</Text>
+                          <Text style={styles.detailValue}>{detail.confirmedBy1stName || 'N/A'}</Text>
+                        </View>
+                        <TouchableOpacity style={styles.whatsappIcon}>
+                          <Text style={styles.whatsappIconText}>📱</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>📞</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Number</Text>
+                          <Text style={styles.detailValue}>{detail.confirmedBy1stNumber || 'N/A'}</Text>
+                        </View>
+                        <TouchableOpacity style={styles.whatsappIcon}>
+                          <Text style={styles.whatsappIconText}>📱</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>👤</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>2nd Name</Text>
+                          <Text style={styles.detailValue}>{detail.confirmedBy2ndName || 'N/A'}</Text>
+                        </View>
+                        <TouchableOpacity style={styles.whatsappIcon}>
+                          <Text style={styles.whatsappIconText}>📱</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailIcon}>
+                          <Text style={styles.detailIconText}>📞</Text>
+                        </View>
+                        <View style={styles.detailContent}>
+                          <Text style={styles.detailLabel}>Number</Text>
+                          <Text style={styles.detailValue}>{detail.confirmedBy2ndNumber || 'N/A'}</Text>
+                        </View>
+                        <TouchableOpacity style={styles.whatsappIcon}>
+                          <Text style={styles.whatsappIconText}>📱</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
 
                     {/* Action: WhatsApp share (dynamic fields based on mapping) */}
@@ -618,21 +711,35 @@ export default function SearchResultsScreen({ route, navigation }) {
                           const buildWhatsAppText = () => {
                             let text = '🚗 *Vehicle Details*\n\n';
                             
+                            // Helper function to get field value or N/A
+                            const getFieldValue = (value, key) => {
+                              if (fm[key] === false) return 'N/A';
+                              return value || '—';
+                            };
+                            
                             // Always include basic fields
-                            if (detail.customerName) text += `👤 *Name:* ${detail.customerName}\n`;
-                            if (detail.regNo) text += `🔢 *Vehicle:* ${detail.regNo}\n`;
-                            if (detail.chassisNo) text += `🔧 *Chassis:* ${detail.chassisNo}\n`;
+                            text += `👤 *Name:* ${getFieldValue(detail.customerName, 'customerName')}\n`;
+                            text += `🔢 *Vehicle:* ${getFieldValue(detail.regNo, 'regNo')}\n`;
+                            text += `🔧 *Chassis:* ${getFieldValue(detail.chassisNo, 'chassisNo')}\n`;
                             
                             // Add other fields based on mapping
-                            if (fm.loanNo !== false && detail.loanNo) text += `📄 *Loan:* ${detail.loanNo}\n`;
-                            if (fm.bank !== false && detail.bank) text += `🏦 *Bank:* ${detail.bank}\n`;
-                            if (fm.make !== false && detail.make) text += `🏭 *Make:* ${detail.make}\n`;
-                            if (fm.model !== false && detail.model) text += `🚘 *Model:* ${detail.model}\n`;
-                            if (fm.engineNo !== false && detail.engineNo) text += `⚙️ *Engine:* ${detail.engineNo}\n`;
-                            if (fm.emiAmount !== false && detail.emiAmount) text += `💳 *EMI:* ${detail.emiAmount}\n`;
-                            if (fm.address !== false && detail.address) text += `📍 *Address:* ${detail.address}\n`;
-                            if (fm.branch !== false && detail.branch) text += `🏢 *Branch:* ${detail.branch}\n`;
-                            if (fm.status !== false && detail.status) text += `📌 *Status:* ${detail.status}\n`;
+                            text += `📄 *Agreement No:* ${getFieldValue(detail.loanNo, 'loanNo')}\n`;
+                            text += `🏦 *Bank:* ${getFieldValue(detail.bank, 'bank')}\n`;
+                            text += `🏭 *Make:* ${getFieldValue(detail.make, 'make')}\n`;
+                            text += `🚘 *Model:* ${getFieldValue(detail.model, 'model')}\n`;
+                            text += `⚙️ *Engine:* ${getFieldValue(detail.engineNo, 'engineNo')}\n`;
+                            text += `💳 *Emi:* ${getFieldValue(detail.emiAmount, 'emiAmount')}\n`;
+                            text += `🏢 *Branch:* ${getFieldValue(detail.branch, 'branch')}\n`;
+                            text += `🧾 *POS:* ${getFieldValue(detail.pos, 'pos')}\n`;
+                            text += `🪣 *BKTS:* ${getFieldValue(detail.bucket, 'bucket')}\n`;
+                            text += `🗓️ *Upload Date:* ${getFieldValue(detail.uploadDate ? new Date(detail.uploadDate).toLocaleDateString() : '—', 'uploadDate')}\n`;
+                            
+                            // Confirmed by section
+                            text += `\n*Confirmed By:*\n`;
+                            text += `👤 *1st Name:* ${detail.confirmedBy1stName || 'N/A'}\n`;
+                            text += `📞 *Number:* ${detail.confirmedBy1stNumber || 'N/A'}\n`;
+                            text += `👤 *2nd Name:* ${detail.confirmedBy2ndName || 'N/A'}\n`;
+                            text += `📞 *Number:* ${detail.confirmedBy2ndNumber || 'N/A'}\n`;
                             
                             return text;
                           };
@@ -665,13 +772,15 @@ export default function SearchResultsScreen({ route, navigation }) {
                       {(() => {
                         const fm = fieldMapping || {};
                         const row = (label, value, key, icon='•') => {
-                          if (key in fm && fm[key] === false) return null;
+                          const shouldHide = key in fm && fm[key] === false;
+                          // Show field with N/A if disabled, don't hide completely
+                          const displayValue = shouldHide ? 'N/A' : (value ?? '—');
                           return (
                             <View key={label} style={styles.detailRow}>
                               <View style={styles.detailIcon}><Text style={styles.detailIconText}>{icon}</Text></View>
                         <View style={styles.detailContent}>
                                 <Text style={styles.detailLabel}>{label}</Text>
-                                <Text style={styles.detailValue}>{value ?? '—'}</Text>
+                                <Text style={styles.detailValue}>{displayValue}</Text>
                         </View>
                       </View>
                           );
@@ -804,9 +913,9 @@ const styles = StyleSheet.create({
   ,vehicleType: { fontSize: 14, color: '#666', fontWeight: '600' }
   ,closeBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }
   ,closeBtnText: { fontSize: 16, color: '#666', fontWeight: '600' }
-  ,detailsSection: { padding: 20, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }
-  ,sectionTitle: { fontSize: 18, fontWeight: '700', color: '#111', marginBottom: 15, textTransform: 'uppercase', letterSpacing: 0.5 }
-  ,detailRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, paddingVertical: 8 }
+  ,detailsSection: { padding: 15, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }
+  ,sectionTitle: { fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }
+  ,detailRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, paddingVertical: 4 }
   ,detailIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center', marginRight: 15 }
   ,detailIconText: { fontSize: 18 }
   ,detailContent: { flex: 1 }
@@ -825,6 +934,8 @@ const styles = StyleSheet.create({
   ,segBtnActive: { backgroundColor: '#222636', borderColor: '#222636' }
   ,segText: { color: '#111', fontWeight: '700' }
   ,segTextActive: { color: '#fff' }
+  ,whatsappIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#25D366', alignItems: 'center', justifyContent: 'center', marginLeft: 10 }
+  ,whatsappIconText: { fontSize: 16, color: '#fff' }
 });
 
 

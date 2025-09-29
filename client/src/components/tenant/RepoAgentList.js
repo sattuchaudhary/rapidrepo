@@ -127,6 +127,7 @@ const RepoAgentList = () => {
       
       console.log('Fetching repo agents from API...');
       const response = await axios.get('http://localhost:5000/api/tenant/users/agents', {
+        params: { page: 1, limit: 1000 },
         headers: { Authorization: `Bearer ${token}` }
       });
       

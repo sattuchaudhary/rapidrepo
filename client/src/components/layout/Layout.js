@@ -106,7 +106,16 @@ const Layout = () => {
         {/* Sidebar Header */}
         <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <AdminIcon sx={{ mr: 1, fontSize: 28, color: theme.palette.primary.main }} />
+            <img 
+              src="/logo192.png" 
+              alt="RapidRepo Logo" 
+              style={{ 
+                width: 28, 
+                height: 28, 
+                marginRight: 8,
+                objectFit: 'contain'
+              }} 
+            />
             <Typography variant="h6" sx={{ fontWeight: 700 }}>
               RapidRepo
             </Typography>
