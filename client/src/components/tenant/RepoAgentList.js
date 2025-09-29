@@ -114,6 +114,61 @@ const RepoAgentList = () => {
     fetchRepoAgents();
   }, []);
 
+  // Helper to get default field mapping
+  const getDefaultFieldMapping = () => ({
+    regNo: true,
+    chassisNo: true,
+    loanNo: true,
+    bank: true,
+    make: true,
+    customerName: true,
+    engineNo: true,
+    emiAmount: true,
+    address: true,
+    branch: true,
+    pos: true,
+    model: true,
+    productName: true,
+    bucket: true,
+    season: true,
+    inYard: false,
+    yardName: false,
+    yardLocation: false,
+    status: true,
+    uploadDate: false,
+    fileName: false
+  });
+
+  // Load saved field mapping from server and merge with defaults
+  const loadFieldMapping = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const res = await axios.get('http://localhost:5000/api/tenants/field-mapping', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res?.data?.success) {
+        const serverMap = res.data.fieldMapping || {};
+        const merged = { ...getDefaultFieldMapping(), ...serverMap };
+        setFieldMapping(merged);
+      }
+    } catch (e) {
+      // Keep defaults on error
+    }
+  };
+
+  // Load mapping on mount
+  useEffect(() => {
+    loadFieldMapping();
+  }, []);
+
+  // Also refresh mapping each time dialog opens
+  useEffect(() => {
+    if (openMappingDialog) {
+      loadFieldMapping();
+    }
+  }, [openMappingDialog]);
+
   const fetchRepoAgents = async () => {
     try {
       setLoading(true);
@@ -1006,6 +1061,8 @@ const RepoAgentList = () => {
                 await axios.post('http://localhost:5000/api/tenants/field-mapping', fieldMapping, {
                   headers: { Authorization: `Bearer ${token}` }
                 });
+                // Reload mapping from server to ensure we reflect canonical saved state
+                await loadFieldMapping();
                 setOpenMappingDialog(false);
                 setSuccess('Field mapping configuration saved successfully!');
               } catch (error) {
