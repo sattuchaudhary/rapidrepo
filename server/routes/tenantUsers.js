@@ -84,6 +84,7 @@ router.post('/agents/login', async (req, res) => {
 
     const token = jwt.sign({
       agentId: agent._id,
+      tenantId: tenant._id,
       tenantName: tenant.name,
       type: 'repo_agent'
     }, process.env.JWT_SECRET, { expiresIn: '7d' });
