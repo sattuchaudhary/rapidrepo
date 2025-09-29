@@ -13,6 +13,7 @@ import {
   Dimensions,
   Animated
 } from 'react-native';
+import { useColorScheme, StatusBar } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import { getBaseURL } from '../utils/config';
@@ -20,6 +21,20 @@ import { getBaseURL } from '../utils/config';
 const { width, height } = Dimensions.get('window');
 
 export default function LoginScreen({ navigation }) {
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const theme = {
+    bg: isDark ? '#0b1220' : '#0f172a',
+    cardBg: isDark ? '#111827' : '#ffffff',
+    textPrimary: isDark ? '#e5e7eb' : '#0f172a',
+    textSecondary: isDark ? '#94a3b8' : '#475569',
+    inputBg: isDark ? '#0f172a' : '#f8fafc',
+    inputBorder: isDark ? '#1f2937' : '#e2e8f0',
+    accent: '#2563eb',
+    muted: isDark ? '#9ca3af' : '#64748b',
+    surfaceBorder: isDark ? '#1f2937' : '#E5E7EB',
+    danger: '#dc2626'
+  };
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -50,68 +65,99 @@ export default function LoginScreen({ navigation }) {
       const isEmail = identifier.includes('@');
       const body = { password };
       if (isEmail) body.email = identifier.trim(); else body.phoneNumber = identifier.trim();
-      const res = await axios.post(`${getBaseURL()}/api/tenant/users/agents/login`, body);
-      const payload = res?.data;
-      const token = payload?.data?.token;
-      const agent = payload?.data?.agent;
-      if (!token || !agent) {
-        setError(payload?.message || 'Login failed');
+
+      // Try repo agent login first
+      try {
+        const res = await axios.post(`${getBaseURL()}/api/tenant/users/agents/login`, body);
+        const payload = res?.data;
+        const token = payload?.data?.token;
+        const agent = payload?.data?.agent;
+        if (!token || !agent) {
+          throw new Error(payload?.message || 'Login failed');
+        }
+        await SecureStore.setItemAsync('token', token);
+        await SecureStore.setItemAsync('agent', JSON.stringify(agent));
+        navigation.replace('Dashboard');
         return;
+      } catch (agentErr) {
+        // If not email, attempt office staff login using phone number
+        if (!isEmail) {
+          const staffBody = { phoneNumber: identifier.trim(), password };
+          const staffRes = await axios.post(`${getBaseURL()}/api/tenant/users/staff/login`, staffBody);
+          const payload = staffRes?.data;
+          const token = payload?.data?.token;
+          const staff = payload?.data?.staff;
+          if (!token || !staff) {
+            throw new Error(payload?.message || 'Login failed');
+          }
+          const agentLike = {
+            id: staff.id,
+            name: staff.name,
+            email: null,
+            phoneNumber: staff.phoneNumber,
+            status: staff.status,
+            role: staff.role || 'office_staff',
+            tenantName: staff.tenantName
+          };
+          await SecureStore.setItemAsync('token', token);
+          await SecureStore.setItemAsync('agent', JSON.stringify(agentLike));
+          navigation.replace('Dashboard');
+          return;
+        }
+        throw agentErr;
       }
-      await SecureStore.setItemAsync('token', token);
-      await SecureStore.setItemAsync('agent', JSON.stringify(agent));
-      navigation.replace('Dashboard');
     } catch (e) {
-      setError(e.response?.data?.message || 'Login failed');
+      setError(e.response?.data?.message || e.message || 'Login failed');
     } finally { setLoading(false); }
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.bg }]}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <Animated.View style={[styles.card, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-            <Text style={styles.brand}>Repo</Text>
-            <Text style={styles.title}>Welcome back</Text>
-            <Text style={styles.subtitle}>Sign in to continue</Text>
+          <Animated.View style={[styles.card, { backgroundColor: theme.cardBg, opacity: fadeAnim, transform: [{ translateY: slideAnim }], borderColor: theme.surfaceBorder }]}> 
+            <Text style={[styles.brand, { color: theme.accent }]}>Repo</Text>
+            <Text style={[styles.title, { color: theme.textPrimary }]}>Welcome back</Text>
+            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Sign in to continue</Text>
 
-            {!!error && <Text style={styles.error}>{error}</Text>}
+            {!!error && <Text style={[styles.error, { color: theme.danger }]}>{error}</Text>}
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Email or Phone</Text>
+              <Text style={[styles.inputLabel, { color: theme.muted }]}>Email or Phone</Text>
               <TextInput
                 placeholder="you@example.com / 98XXXXXXXX"
                 autoCapitalize="none"
                 keyboardType="default"
                 value={identifier}
                 onChangeText={setIdentifier}
-                style={styles.input}
+                style={[styles.input, { backgroundColor: theme.inputBg, borderColor: theme.inputBorder, color: theme.textPrimary }]}
                 returnKeyType="next"
               />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Password</Text>
+              <Text style={[styles.inputLabel, { color: theme.muted }]}>Password</Text>
               <View style={styles.passwordRow}>
                 <TextInput
                   placeholder="Your password"
                   secureTextEntry={!showPassword}
                   value={password}
                   onChangeText={setPassword}
-                  style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                  style={[styles.input, { flex: 1, marginBottom: 0, backgroundColor: theme.inputBg, borderColor: theme.inputBorder, color: theme.textPrimary }]}
                   returnKeyType="done"
                 />
                 <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.showBtn}>
-                  <Text style={styles.showBtnText}>{showPassword ? 'Hide' : 'Show'}</Text>
+                  <Text style={[styles.showBtnText, { color: theme.accent }]}>{showPassword ? 'Hide' : 'Show'}</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            <TouchableOpacity disabled={loading} onPress={onLogin} style={[styles.primaryBtn, loading && styles.primaryBtnDisabled]}>
+            <TouchableOpacity disabled={loading} onPress={onLogin} style={[styles.primaryBtn, { backgroundColor: theme.accent }, loading && styles.primaryBtnDisabled]}>
               {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Sign In</Text>}
             </TouchableOpacity>
 
-            <Text style={styles.helperText}>Use your registered email or phone number</Text>
+            <Text style={[styles.helperText, { color: theme.muted }]}>Use your registered email or phone number</Text>
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>

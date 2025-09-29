@@ -170,6 +170,7 @@ router.post('/staff/login', async (req, res) => {
 
     const token = jwt.sign({
       staffId: staff._id,
+      tenantId: tenant._id,
       tenantName: tenant.name,
       type: 'office_staff'
     }, process.env.JWT_SECRET, { expiresIn: '7d' });

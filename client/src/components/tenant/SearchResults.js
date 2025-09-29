@@ -47,12 +47,26 @@ const SearchResults = () => {
   const [detailError, setDetailError] = useState('');
   const [vehicleDetail, setVehicleDetail] = useState(null);
 
+  const sanitizeRegInput = (value) => {
+    const noSpaces = String(value || '').replace(/\s+/g, '');
+    const alnum = noSpaces.replace(/[^a-zA-Z0-9]/g, '');
+    return alnum.toUpperCase();
+  };
+
+  const isValidRegQuery = (value) => {
+    const q = sanitizeRegInput(value);
+    const isFourDigits = /^\d{4}$/.test(q);
+    const fullReg = /^[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}$/;
+    return isFourDigits || fullReg.test(q);
+  };
+
   const fetchResults = async () => {
     try {
       setLoading(true);
       setError('');
       const token = localStorage.getItem('token');
-      const qs = new URLSearchParams({ q: query, limit: '1000' });
+      const clean = sanitizeRegInput(query);
+      const qs = new URLSearchParams({ q: clean, type: 'reg', limit: '400' });
       const res = await axios.get(`http://localhost:5000/api/tenant/data/search?${qs}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -70,11 +84,11 @@ const SearchResults = () => {
 
   useEffect(() => {
     const newQ = params.get('q') || '';
-    setQuery(newQ);
+    setQuery(sanitizeRegInput(newQ));
   }, [params]);
 
   useEffect(() => {
-    if ((query || '').trim()) {
+    if (isValidRegQuery(query)) {
       fetchResults();
     } else {
       setData([]);
@@ -138,21 +152,21 @@ const SearchResults = () => {
           <TextField
             fullWidth
             size="small"
-            placeholder="Search reg no / chassis / loan"
+            placeholder="Registration only: 4 digits or full number"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => setQuery(sanitizeRegInput(e.target.value))}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                const q = (query || '').trim();
-                navigate(`/app/tenant/search?q=${encodeURIComponent(q)}`);
+                const q = sanitizeRegInput(query);
+                if (isValidRegQuery(q)) navigate(`/app/tenant/search?q=${encodeURIComponent(q)}`);
               }
             }}
           />
           <Button
             variant="contained"
             onClick={() => {
-              const q = (query || '').trim();
-              navigate(`/app/tenant/search?q=${encodeURIComponent(q)}`);
+              const q = sanitizeRegInput(query);
+              if (isValidRegQuery(q)) navigate(`/app/tenant/search?q=${encodeURIComponent(q)}`);
             }}
           >
             Search

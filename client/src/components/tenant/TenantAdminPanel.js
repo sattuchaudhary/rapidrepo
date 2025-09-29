@@ -74,6 +74,23 @@ const TenantAdminPanel = () => {
   const location = useLocation();
   const { logout, user } = useAuth();
   const [headerSearch, setHeaderSearch] = useState('');
+
+  // Normalize and validate registration number input
+  const sanitizeRegInput = (value) => {
+    const noSpaces = String(value || '').replace(/\s+/g, '');
+    const alnum = noSpaces.replace(/[^a-zA-Z0-9]/g, '');
+    return alnum.toUpperCase();
+  };
+
+  const isValidRegQuery = (value) => {
+    const q = sanitizeRegInput(value);
+    // Allow either exactly 4 digits (suffix search) or a full registration number format
+    const isFourDigits = /^\d{4}$/.test(q);
+    // Broad but reasonable India registration pattern without spaces/dashes
+    const fullReg = /^[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}$/; 
+    const isFullReg = fullReg.test(q);
+    return isFourDigits || isFullReg;
+  };
   const [open, setOpen] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState({
     userManagement: true,
@@ -287,15 +304,13 @@ const TenantAdminPanel = () => {
               <TextField
                 fullWidth
                 size="small"
-                placeholder="Search reg no / chassis / loan (e.g., 1234)"
+                placeholder="Registration only: enter last 4 digits or full number"
                 value={headerSearch}
-                onChange={(e) => setHeaderSearch(e.target.value)}
+                onChange={(e) => setHeaderSearch(sanitizeRegInput(e.target.value))}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    const q = (headerSearch || '').trim();
-                    if (q) {
-                      navigate(`/app/tenant/search?q=${encodeURIComponent(q)}`);
-                    }
+                    const q = sanitizeRegInput(headerSearch);
+                    if (isValidRegQuery(q)) navigate(`/app/tenant/search?q=${encodeURIComponent(q)}`);
                   }
                 }}
                 InputProps={{
