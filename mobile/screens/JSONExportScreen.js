@@ -5,7 +5,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import axios from 'axios';
 import { getBaseURL } from '../utils/config';
-import { initDatabase, bulkInsertVehicles, rebuildSearchIndex } from '../utils/db';
 
 export default function JSONExportScreen() {
 	const [isDownloading, setIsDownloading] = useState(false);
@@ -78,50 +77,6 @@ export default function JSONExportScreen() {
 		}
 	};
 
-	const importToOfflineDB = async () => {
-		if (!fileUri || isImporting) return;
-		setIsImporting(true);
-		setStatus('Preparing to import...');
-		try {
-			const content = await FileSystem.readAsStringAsync(fileUri);
-			const parsed = JSON.parse(content || '{}');
-			const items = Array.isArray(parsed.data) ? parsed.data : [];
-			const total = items.length;
-			if (total === 0) {
-				Alert.alert('Nothing to import', 'The JSON file has no records.');
-				setIsImporting(false);
-				return;
-			}
-			await initDatabase();
-			setStatus(`Importing ${total.toLocaleString()} records...`);
-			const insertChunkSize = 2000;
-			let inserted = 0;
-			for (let i = 0; i < items.length; i += insertChunkSize) {
-				const chunk = items.slice(i, i + insertChunkSize);
-				try {
-					inserted += await bulkInsertVehicles(chunk, { reindex: false });
-				} catch (err) {
-					console.log('Insert chunk failed, continuing:', err?.message || err);
-				}
-				setStatus(`Imported ${Math.min(inserted, i + insertChunkSize).toLocaleString()} / ${total.toLocaleString()}`);
-				await new Promise((r) => setTimeout(r, 0));
-			}
-			setStatus('Rebuilding search index...');
-			await rebuildSearchIndex();
-			const nowIso = new Date().toISOString();
-			await SecureStore.setItemAsync('lastSyncTime', nowIso);
-			await SecureStore.setItemAsync('offline_metadata', JSON.stringify({ totalRecords: inserted, downloadedAt: nowIso, method: 'json_import' }));
-			setStatus(`Import complete: ${inserted.toLocaleString()} records.`);
-			Alert.alert('Import Complete', `Imported ${inserted.toLocaleString()} records into offline search.`);
-		} catch (e) {
-			console.error('Import failed:', e);
-			Alert.alert('Import Failed', e?.message || 'Could not import JSON');
-			setStatus('Import failed');
-		} finally {
-			setIsImporting(false);
-		}
-	};
-
 	return (
 		<ScrollView contentContainerStyle={{ flexGrow: 1 }} style={{ flex: 1, backgroundColor: '#10121A' }}>
 			<View style={{ padding: 16 }}>
@@ -163,34 +118,8 @@ export default function JSONExportScreen() {
 						<Text style={{ color: '#fff', fontWeight: '800' }}>Share File</Text>
 					</TouchableOpacity>
 				</View>
-
-				{fileUri && (
-					<View style={{ marginTop: 10 }}>
-						<TouchableOpacity
-							style={{ backgroundColor: '#F59E0B', paddingVertical: 14, borderRadius: 10, alignItems: 'center' }}
-							onPress={importToOfflineDB}
-							disabled={isImporting}
-						>
-							{isImporting ? (
-								<ActivityIndicator color="#111" />
-							) : (
-								<Text style={{ color: '#111', fontWeight: '800' }}>Import to Offline Search</Text>
-							)}
-						</TouchableOpacity>
-					</View>
-				)}
-
-				{!!status && (
-					<Text style={{ color: '#9CA3AF', marginTop: 12 }}>{status}</Text>
-				)}
-
-				{fileUri && (
-					<View style={{ marginTop: 12 }}>
-						<Text style={{ color: '#9CA3AF', fontSize: 12 }}>Saved to:</Text>
-						<Text selectable style={{ color: '#E5E7EB', fontSize: 12 }}>{fileUri}</Text>
-					</View>
-				)}
 			</View>
 		</ScrollView>
 	);
 }
+

@@ -922,8 +922,25 @@ router.put('/vehicle/:id/confirm', authenticateUnifiedToken, async (req, res) =>
   }
 });
 
-// Auth middleware for admin-only routes below
-router.use(authenticateUnifiedToken, requireAdmin);
+// Auth: allow tenant users (repo agents/office staff) to access read-only download endpoints
+// and keep admin requirement for mutating/admin-only routes.
+router.use(authenticateUnifiedToken);
+router.use((req, res, next) => {
+  try {
+    const isGet = String(req.method || '').toUpperCase() === 'GET';
+    const p = String(req.path || '');
+    const isReadOnlyDownload = isGet && (
+      p === '/two-wheeler' ||
+      p === '/four-wheeler' ||
+      p === '/cv' ||
+      p.startsWith('/file/') ||
+      p === '/offline-dump-progress' ||
+      p === '/dashboard-stats'
+    );
+    if (isReadOnlyDownload) return next();
+  } catch (_) {}
+  return requireAdmin(req, res, next);
+});
 
 // Get two wheeler upload history
 router.get('/two-wheeler', async (req, res) => {

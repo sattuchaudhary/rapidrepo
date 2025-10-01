@@ -33,9 +33,7 @@ class SimpleEventEmitter {
     });
   }
 }
-import { runOptimizedBulkDownload, runMissingOnlySync } from './offlineSync';
-
-// Singleton SyncManager to orchestrate a single global sync operation
+// OFFLINE/SYNC DISABLED: provide inert manager preserving API shape
 class SyncManagerInternal {
   constructor() {
     this.emitter = new SimpleEventEmitter();
@@ -51,58 +49,24 @@ class SyncManagerInternal {
 
   emitChange() {
     this.emitter.emit('change', {
-      isSyncing: this.isSyncing,
-      progress: this.progress,
+      isSyncing: false,
+      progress: null,
       result: this.result,
     });
   }
 
   getState() {
     return {
-      isSyncing: this.isSyncing,
-      progress: this.progress,
+      isSyncing: false,
+      progress: null,
       result: this.result,
     };
   }
 
   async start(mode = 'optimized') {
-    if (this.isSyncing) return { started: false };
-    this.isSyncing = true;
-    this.progress = { processed: 0, total: 0, percentage: 0 };
-    this.result = null;
+    this.result = { success: false, message: 'offline sync disabled' };
     this.emitChange();
-
-    try {
-      // Throttle progress updates to avoid blocking UI
-      let lastEmitTime = 0;
-      let lastPercent = -1;
-      const MIN_INTERVAL_MS = 300;
-      const MIN_PERCENT_STEP = 1;
-
-      const handleProgress = (p) => {
-        const now = Date.now();
-        const pct = Math.max(0, Math.min(100, Math.round(p?.percentage || 0)));
-        const shouldEmit =
-          now - lastEmitTime >= MIN_INTERVAL_MS || Math.abs(pct - lastPercent) >= MIN_PERCENT_STEP;
-        if (!shouldEmit) return;
-        lastEmitTime = now;
-        lastPercent = pct;
-        this.progress = { ...p, percentage: pct };
-        this.emitChange();
-      };
-
-      const res = mode === 'missing_only'
-        ? await runMissingOnlySync(handleProgress)
-        : await runOptimizedBulkDownload(handleProgress);
-      this.result = res;
-      return { started: true, result: res };
-    } catch (e) {
-      this.result = { success: false, message: e?.message || 'sync failed' };
-      return { started: true, result: this.result };
-    } finally {
-      this.isSyncing = false;
-      this.emitChange();
-    }
+    return { started: true, result: this.result };
   }
 }
 

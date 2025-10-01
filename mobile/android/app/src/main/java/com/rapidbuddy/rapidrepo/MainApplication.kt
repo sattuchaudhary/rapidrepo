@@ -1,4 +1,4 @@
-package com.rapidrepo
+package com.rapidbuddy.rapidrepo
 
 import android.app.Application
 import android.content.res.Configuration

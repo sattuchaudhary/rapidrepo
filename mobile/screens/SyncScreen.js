@@ -9,13 +9,7 @@ import {
   RefreshControl,
   ActivityIndicator
 } from 'react-native';
-import { runHeadlessOfflineSync } from '../utils/offlineSync';
-import SyncManager from '../utils/SyncManager';
 import { countVehicles, initDatabase } from '../utils/db';
-import DownloadProgress from '../components/DownloadProgress';
-import { validateProgressData } from '../utils/errorHandler';
-import { testDatabase } from '../utils/dbTest';
-import { simpleSync, getSyncStatus, markSyncCompleted } from '../utils/simpleSync';
 import * as SecureStore from 'expo-secure-store';
 
 const SyncScreen = () => {
@@ -23,18 +17,11 @@ const SyncScreen = () => {
   const [localCount, setLocalCount] = useState(0);
   const [lastSync, setLastSync] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [syncMethod, setSyncMethod] = useState('simple'); // 'simple' | 'optimized' | 'legacy' | 'missing_only'
-  const [progress, setProgress] = useState(null);
   const [needsSync, setNeedsSync] = useState(false);
 
   useEffect(() => {
     loadLocalData();
-    const unsub = SyncManager.subscribe(async (state) => {
-      if (!state.isSyncing && state.result) {
-        try { await loadLocalData(); } catch (_) {}
-      }
-    });
-    return unsub;
+    return () => {};
   }, []);
 
   const loadLocalData = async () => {
@@ -45,10 +32,13 @@ const SyncScreen = () => {
       const count = await countVehicles();
       setLocalCount(count);
       
-      // Get sync status
-      const syncStatus = await getSyncStatus();
-      setNeedsSync(syncStatus.needsSync);
-      setLastSync(syncStatus.lastSync);
+      setNeedsSync(false);
+      setLastSync(null);
+      
+      // Log cleanup results if any
+      if (perFile.cleanupResult && (perFile.cleanupResult.deletedFiles > 0 || perFile.cleanupResult.deletedRecords > 0)) {
+        console.log(`🧹 Auto cleanup completed: ${perFile.cleanupResult.deletedFiles} files, ${perFile.cleanupResult.deletedRecords} records removed`);
+      }
       
     } catch (error) {
       console.error('Error loading local data:', error);
@@ -59,88 +49,8 @@ const SyncScreen = () => {
     }
   };
 
-  const handleSimpleSync = async () => {
-    setIsDownloading(true);
-    setProgress({ processed: 0, total: 0, percentage: 0 });
-    
-    try {
-      const result = await simpleSync((progressData) => {
-        setProgress(progressData);
-      });
-      
-      if (result.success) {
-        await markSyncCompleted();
-        Alert.alert(
-          'Sync Successful',
-          `Downloaded ${result.totalDownloaded.toLocaleString()} records in ${result.batchesProcessed} batches!\n\nInserted: ${result.totalInserted.toLocaleString()}\nCleaned: ${result.extraRecordsCleaned.toLocaleString()}`,
-          [{ text: 'OK', onPress: loadLocalData }]
-        );
-      } else {
-        Alert.alert('Sync Failed', result.message || 'Unknown error occurred');
-      }
-    } catch (error) {
-      console.error('Simple sync error:', error);
-      Alert.alert('Sync Error', error.message || 'Failed to sync data');
-    } finally {
-      setIsDownloading(false);
-      setProgress(null);
-    }
-  };
-
-  const handleOptimizedSync = async () => {
-    setIsDownloading(true);
-    try {
-      const { started, result } = await SyncManager.start('optimized');
-      if (!started) {
-        Alert.alert('Sync Running', 'A sync is already in progress.');
-      }
-      // Completion toast/alert handled by reloading stats on focus or pull-to-refresh
-    } catch (error) {
-      console.error('Sync error:', error);
-      Alert.alert('Sync Error', error.message || 'Failed to sync data');
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
-  const handleLegacySync = async () => {
-    setIsDownloading(true);
-    setProgress({ processed: 0, total: 0, percentage: 0 });
-
-    try {
-      const result = await runHeadlessOfflineSync();
-
-      if (result.success) {
-        Alert.alert(
-          'Sync Successful',
-          `Downloaded ${result.inserted.toLocaleString()} records successfully!`,
-          [{ text: 'OK', onPress: loadLocalData }]
-        );
-      } else {
-        Alert.alert('Sync Failed', result.message || 'Unknown error occurred');
-      }
-    } catch (error) {
-      console.error('Sync error:', error);
-      Alert.alert('Sync Error', error.message || 'Failed to sync data');
-    } finally {
-      setIsDownloading(false);
-      setProgress(null);
-    }
-  };
-
-  const handleMissingOnlySync = async () => {
-    setIsDownloading(true);
-    try {
-      const { started, result } = await SyncManager.start('missing_only');
-      if (!started) {
-        Alert.alert('Sync Running', 'A sync is already in progress.');
-      }
-    } catch (error) {
-      console.error('Sync error:', error);
-      Alert.alert('Sync Error', error.message || 'Failed to sync data');
-    } finally {
-      setIsDownloading(false);
-    }
+  const handleSyncDisabled = async () => {
+    Alert.alert('Sync Disabled', 'Offline sync is disabled in this build.');
   };
 
   const handleRefresh = async () => {
@@ -160,6 +70,7 @@ const SyncScreen = () => {
       Alert.alert('Database Test Error', error.message);
     }
   };
+
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Never';
@@ -195,100 +106,21 @@ const SyncScreen = () => {
       </View>
 
       <View style={styles.methodContainer}>
-        <Text style={styles.sectionTitle}>Sync Method</Text>
-        
-        <TouchableOpacity
-          style={[
-            styles.methodButton,
-            syncMethod === 'simple' && styles.methodButtonActive
-          ]}
-          onPress={() => setSyncMethod('simple')}
-        >
-          <Text style={[
-            styles.methodButtonText,
-            syncMethod === 'simple' && styles.methodButtonTextActive
-          ]}>
-            Simple (Recommended)
-          </Text>
-          <Text style={styles.methodDescription}>
-            1 lakh records per batch, auto cleanup, most reliable
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.methodButton,
-            syncMethod === 'optimized' && styles.methodButtonActive
-          ]}
-          onPress={() => setSyncMethod('optimized')}
-        >
-          <Text style={[
-            styles.methodButtonText,
-            syncMethod === 'optimized' && styles.methodButtonTextActive
-          ]}>
-            Optimized (Fast)
-          </Text>
-          <Text style={styles.methodDescription}>
-            Uses compression and bulk download for fastest sync
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.methodButton,
-            syncMethod === 'legacy' && styles.methodButtonActive
-          ]}
-          onPress={() => setSyncMethod('legacy')}
-        >
-          <Text style={[
-            styles.methodButtonText,
-            syncMethod === 'legacy' && styles.methodButtonTextActive
-          ]}>
-            Legacy (Compatible)
-          </Text>
-          <Text style={styles.methodDescription}>
-            Uses chunked download for maximum compatibility
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.methodButton,
-            syncMethod === 'missing_only' && styles.methodButtonActive
-          ]}
-          onPress={() => setSyncMethod('missing_only')}
-        >
-          <Text style={[
-            styles.methodButtonText,
-            syncMethod === 'missing_only' && styles.methodButtonTextActive
-          ]}>
-            Missing Only (By ID)
-          </Text>
-          <Text style={styles.methodDescription}>
-            Download only records not present locally; keeps exact parity
-          </Text>
-        </TouchableOpacity>
+        <Text style={styles.sectionTitle}>Sync Disabled</Text>
+        <Text style={styles.methodDescription}>This build has offline sync turned off.</Text>
       </View>
 
       <View style={styles.actionContainer}>
         <TouchableOpacity
-          style={[styles.syncButton, isDownloading && styles.syncButtonDisabled]}
-          onPress={
-            syncMethod === 'simple'
-              ? handleSimpleSync
-              : syncMethod === 'optimized'
-                ? handleOptimizedSync
-                : syncMethod === 'legacy'
-                  ? handleLegacySync
-                  : handleMissingOnlySync
-          }
+          style={[styles.syncButton, isDownloading && styles.syncButtonDisabled, needsSync ? { backgroundColor: '#EF4444' } : { backgroundColor: '#10B981' }]}
+          onPress={handleSyncDisabled}
           disabled={isDownloading}
         >
           {isDownloading ? (
             <ActivityIndicator color="white" />
           ) : (
             <Text style={styles.syncButtonText}>
-              {isDownloading ? 'Syncing...' : 'Start Sync'}
+              {isDownloading ? 'Syncing...' : (needsSync ? 'Sync Data' : 'Complete')}
             </Text>
           )}
         </TouchableOpacity>
@@ -308,42 +140,17 @@ const SyncScreen = () => {
         >
           <Text style={styles.refreshButtonText}>Test Database</Text>
         </TouchableOpacity>
+
       </View>
 
-      {isDownloading && progress && (
-        <View style={styles.progressContainer}>
-          <Text style={styles.progressTitle}>Sync Progress</Text>
-          <DownloadProgress progress={progress} />
-          {syncMethod === 'simple' && (
-            <View style={styles.simpleProgressInfo}>
-              <Text style={styles.progressText}>
-                Batch: {progress.currentBatch || 0} records
-              </Text>
-              <Text style={styles.progressText}>
-                Inserted: {progress.inserted || 0} records
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
+      {false && <View />}
 
       <View style={styles.infoContainer}>
         <Text style={styles.infoTitle}>Sync Information</Text>
         <Text style={styles.infoText}>
           • Simple method: 1 lakh records per batch, most reliable
         </Text>
-        <Text style={styles.infoText}>
-          • Optimized method downloads all data in one compressed request
-        </Text>
-        <Text style={styles.infoText}>
-          • Legacy method downloads data in smaller chunks
-        </Text>
-        <Text style={styles.infoText}>
-          • Data is stored locally for offline access
-        </Text>
-        <Text style={styles.infoText}>
-          • Sync may take several minutes for large datasets
-        </Text>
+        <Text style={styles.infoText}>• Offline sync features are disabled.</Text>
         {needsSync && (
           <Text style={[styles.infoText, { color: '#FF5722', fontWeight: 'bold' }]}>
             ⚠️ Sync recommended - data may be outdated

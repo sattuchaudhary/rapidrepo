@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, TextInput, FlatList, Image, Modal, Alert, Animated } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, TextInput, FlatList, Image, Modal, Alert, Animated, StatusBar, useColorScheme, Appearance } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
@@ -9,6 +9,7 @@ import * as SQLite from 'expo-sqlite';
 import axios from 'axios';
 import { getBaseURL } from '../utils/config';
 import * as FileSystem from 'expo-file-system/legacy';
+import { singleClickPerFileSync } from '../utils/fileSync';
 // removed: background task imports not needed on simplified dashboard
 
 
@@ -586,9 +587,7 @@ class SQLiteOfflineDB {
   }
 }
 
-// Background sync functions
-// Background task helpers are defined once in utils/backgroundTasks
-import { registerOfflineBackgroundSync, unregisterOfflineBackgroundSync } from '../utils/backgroundTasks';
+// Background sync disabled
 import { countVehicles, searchByRegSuffix, searchByChassis, searchByRegSuffixPartial, searchByRegNoSuffixLike, initDatabase, bulkInsertVehicles, rebuildSearchIndex, clearVehicles } from '../utils/db';
 import { simpleSync, markSyncCompleted } from '../utils/simpleSync';
 import { smartSync, getIncrementalSyncStatus } from '../utils/incrementalSync';
@@ -597,6 +596,26 @@ import { singleBatchSync } from '../utils/hybridSync';
 // Main Dashboard Component
 export default function DashboardScreen({ navigation }) {
   const insets = useSafeAreaInsets();
+  const [colorScheme, setColorScheme] = useState(useColorScheme());
+  const isDark = colorScheme === 'dark';
+  const theme = {
+    bg: isDark ? '#10121A' : '#f8fafc',
+    textPrimary: isDark ? '#ffffff' : '#111827',
+    textSecondary: isDark ? 'rgba(255,255,255,0.7)' : '#64748b',
+    inputBg: isDark ? '#0f172a' : '#ffffff',
+    inputBorder: isDark ? '#1f2937' : '#e2e8f0',
+    drawerBg: isDark ? '#111827' : '#ffffff',
+    drawerText: isDark ? '#e5e7eb' : '#111827',
+    drawerMuted: isDark ? '#9CA3AF' : '#6B7280',
+    cardBg: isDark ? 'rgba(255,255,255,0.08)' : '#ffffff',
+    cardBorder: isDark ? 'rgba(255,255,255,0.15)' : '#e2e8f0',
+    statLabel: isDark ? 'rgba(255,255,255,0.8)' : '#64748b',
+    bottomBarBg: isDark ? 'rgba(17, 24, 39, 0.95)' : 'rgba(255,255,255,0.95)',
+    bottomBarBorder: isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0',
+    modeSectionTitle: isDark ? '#9CA3AF' : '#64748b',
+    modeToggleContainer: isDark ? 'rgba(31, 41, 55, 0.8)' : '#f1f5f9',
+    modeToggleText: isDark ? '#9CA3AF' : '#64748b',
+  };
   const [agent, setAgent] = useState(null);
   const [searchValue, setSearchValue] = useState('');
   const [chassisValue, setChassisValue] = useState('');
@@ -618,6 +637,7 @@ export default function DashboardScreen({ navigation }) {
   const [loadingMessage, setLoadingMessage] = useState('');
   const [isSyncComplete, setIsSyncComplete] = useState(false);
   const [needsSync, setNeedsSync] = useState(false);
+  const [spinnerRotation] = useState(new Animated.Value(0));
   const [syncProgress, setSyncProgress] = useState({
     currentBatch: 0,
     totalBatches: 0,
@@ -626,8 +646,17 @@ export default function DashboardScreen({ navigation }) {
     totalRecords: 0,
     downloadedRecords: 0
   });
+  const headerIconColor = isDark ? '#FFFFFF' : '#111827';
   
   // Use shared utils/db for offline store used by sync
+
+  // Listen for theme changes
+  useEffect(() => {
+    const subscription = Appearance.addChangeListener(({ colorScheme: newColorScheme }) => {
+      setColorScheme(newColorScheme);
+    });
+    return () => subscription?.remove();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -714,17 +743,7 @@ export default function DashboardScreen({ navigation }) {
       // Clear existing data
       // removed legacy sqliteDB usage
 
-      // Use the new rate-limited sync function instead of adaptive strategy
-      const result = await runHeadlessOfflineSync();
-      
-      if (result.success) {
-        setDownloadProgress(100);
-        setDownloadStatus(`Download completed: ${result.inserted?.toLocaleString() || 0} records`);
-        Alert.alert('Success', `Download completed successfully!\nRecords: ${result.inserted?.toLocaleString() || 0}`);
-      } else {
-        setDownloadStatus(`Download failed: ${result.message}`);
-        Alert.alert('Error', `Download failed: ${result.message}`);
-      }
+      Alert.alert('Sync Disabled', 'Offline sync is disabled in this build.');
       return;
       
       /* removed: legacy adaptive download */
@@ -738,70 +757,77 @@ export default function DashboardScreen({ navigation }) {
   };
 
   const runInstantSearch = async (query, type) => {
-    // Strict mode: Offline => ONLY local DB; Online => ONLY server
-    if (isOfflineMode) {
-      // Ensure we have local data count
-      if (!localCount || localCount <= 0) {
-      try {
-        const fresh = await countVehicles();
-        if (typeof fresh === 'number' && fresh >= 0) setLocalCount(fresh);
-      } catch (_) {}
-      }
-      if (!localCount || localCount <= 0) {
-        Alert.alert('Offline Search', 'No local data available. Please run Sync first.');
+    // INSTANT SEARCH - No loading states, immediate navigation
+    try {
+      // Strict mode: Offline => ONLY local DB; Online => ONLY server
+      if (isOfflineMode) {
+        // Ensure we have local data count
+        if (!localCount || localCount <= 0) {
+        try {
+          const fresh = await countVehicles();
+          if (typeof fresh === 'number' && fresh >= 0) setLocalCount(fresh);
+        } catch (_) {}
+        }
+        if (!localCount || localCount <= 0) {
+          Alert.alert('Offline Search', 'No local data available. Please run Sync first.');
+          return;
+        }
+        try {
+          let results = [];
+          if (type === 'reg') {
+            if (/^\d{4}$/.test(query)) {
+              results = await searchByRegSuffix(query);
+              if (!results || results.length === 0) {
+                // fallback to LIKE on full regNo if regSuffix not populated
+                results = await searchByRegNoSuffixLike(query);
+              }
+            } else {
+              results = [];
+            }
+          } else if (type === 'chassis') {
+            results = await searchByChassis(query);
+          }
+          if (results.length > 0) {
+            // Clear inputs and previews on successful navigate
+            setSearchValue('');
+            setChassisValue('');
+            setProgressiveResults([]);
+            setPredictions([]);
+            // INSTANT navigation - no delays
+            navigation.navigate('SearchResults', { q: query, type, fromDashboard: true, instantSearch: true, preloadedData: results, offline: true });
+          } else {
+            Alert.alert('No Results', `No vehicles found in offline data for ${type === 'reg' ? 'registration ending in' : 'chassis containing'} ${query}`);
+          }
+        } catch (error) {
+          Alert.alert('Search Error', 'Error searching offline data: ' + error.message);
+        }
         return;
       }
+
+      // Online mode - INSTANT navigation with preloaded data
       try {
-        let results = [];
-        if (type === 'reg') {
-          if (/^\d{4}$/.test(query)) {
-            results = await searchByRegSuffix(query);
-            if (!results || results.length === 0) {
-              // fallback to LIKE on full regNo if regSuffix not populated
-              results = await searchByRegNoSuffixLike(query);
-            }
-          } else {
-            results = [];
-          }
-        } else if (type === 'chassis') {
-          results = await searchByChassis(query);
-        }
-        if (results.length > 0) {
+        const token = await SecureStore.getItemAsync('token');
+        const res = await axios.get(`${getBaseURL()}/api/tenant/data/search`, {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { q: query, type, limit: 1000 }
+        });
+        const serverResults = res.data?.data || [];
+        if (serverResults.length > 0) {
           // Clear inputs and previews on successful navigate
           setSearchValue('');
           setChassisValue('');
           setProgressiveResults([]);
           setPredictions([]);
-          navigation.navigate('SearchResults', { q: query, type, fromDashboard: true, instantSearch: true, preloadedData: results, offline: true });
+          // INSTANT navigation - no delays
+          navigation.navigate('SearchResults', { q: query, type, fromDashboard: true, instantSearch: true, preloadedData: serverResults, offline: false });
         } else {
-          Alert.alert('No Results', `No vehicles found in offline data for ${type === 'reg' ? 'registration ending in' : 'chassis containing'} ${query}`);
+          Alert.alert('No Results', `No vehicles found on server for ${type === 'reg' ? 'registration ending in' : 'chassis containing'} ${query}`);
         }
       } catch (error) {
-        Alert.alert('Search Error', 'Error searching offline data: ' + error.message);
-      }
-      return;
-    }
-
-    // Online mode
-    try {
-      const token = await SecureStore.getItemAsync('token');
-      const res = await axios.get(`${getBaseURL()}/api/tenant/data/search`, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { q: query, type, limit: 1000 }
-      });
-      const serverResults = res.data?.data || [];
-      if (serverResults.length > 0) {
-        // Clear inputs and previews on successful navigate
-        setSearchValue('');
-        setChassisValue('');
-        setProgressiveResults([]);
-        setPredictions([]);
-        navigation.navigate('SearchResults', { q: query, type, fromDashboard: true, instantSearch: true, preloadedData: serverResults, offline: false });
-      } else {
-        Alert.alert('No Results', `No vehicles found on server for ${type === 'reg' ? 'registration ending in' : 'chassis containing'} ${query}`);
+        Alert.alert('Search Failed', 'Unable to connect to server. Please check your internet connection.');
       }
     } catch (error) {
-      Alert.alert('Search Failed', 'Unable to connect to server. Please check your internet connection.');
+      console.error('Search error:', error);
     }
   };
 
@@ -966,8 +992,13 @@ export default function DashboardScreen({ navigation }) {
       const batchSize = 100000; // 1 lakh records per batch
       const totalBatches = Math.ceil(serverTotal / batchSize);
       
-      // Get current offset from sync progress or start from 0
-      const currentOffset = syncProgress.currentOffset || 0;
+      // Determine a smart starting offset:
+      // - If we have stored progress, use that
+      // - Otherwise, derive from current local count to avoid re-downloading completed batches
+      const derivedOffsetFromLocal = Math.floor((localCount || 0) / batchSize) * batchSize;
+      const currentOffset = (syncProgress.currentOffset && syncProgress.currentOffset > 0)
+        ? syncProgress.currentOffset
+        : derivedOffsetFromLocal;
       const currentBatch = Math.floor(currentOffset / batchSize) + 1;
 
       setLoadingMessage(`Downloading batch ${currentBatch} of ${totalBatches}...`);
@@ -1044,6 +1075,45 @@ export default function DashboardScreen({ navigation }) {
       setShowLoadingOverlay(false);
       setLoadingMessage('');
       setTimeout(() => setDownloading(false), 1000);
+    }
+  };
+
+  const syncPerFile = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    setShowLoadingOverlay(true);
+    setLoadingMessage('Preparing sync...');
+    setDownloadProgress(0);
+    setDownloadStatus('Listing files...');
+
+    try {
+      const res = await singleClickPerFileSync((p) => {
+        try {
+          const totalFiles = Math.max(1, parseInt(p?.totalFiles || 1));
+          const processed = Math.min(totalFiles, parseInt(p?.processedFiles || 0));
+          const pct = Math.min(99, Math.round((processed / totalFiles) * 100));
+          setDownloadProgress(pct);
+          setDownloadStatus(p?.currentFile ? `Downloading: ${p.currentFile}` : 'Downloading...');
+        } catch (_) {}
+      }, 50000);
+
+      const updatedCount = await countVehicles();
+      setLocalCount(typeof updatedCount === 'number' ? updatedCount : 0);
+      setLastDownloadedAt(new Date().toLocaleString());
+      setLastSyncTime(new Date().toISOString());
+      setDownloadProgress(100);
+      setDownloadStatus('Sync complete');
+
+      Alert.alert('Sync Complete', `Files processed: ${res.filesProcessed}\nInserted: ${res.totalInserted.toLocaleString()}\nLocal total: ${updatedCount.toLocaleString()}`);
+    } catch (error) {
+      console.error('Per-file sync failed:', error);
+      setDownloadStatus('Sync failed');
+      Alert.alert('Sync Failed', error?.message || 'Unable to sync');
+    } finally {
+      setShowLoadingOverlay(false);
+      setLoadingMessage('');
+      setTimeout(() => setDownloading(false), 600);
+      await refreshLocalCount();
     }
   };
 
@@ -1139,19 +1209,37 @@ export default function DashboardScreen({ navigation }) {
     ]).start();
   }, []);
 
+  // Spinner rotation animation
+  useEffect(() => {
+    if (showLoadingOverlay) {
+      const startRotation = () => {
+        spinnerRotation.setValue(0);
+        Animated.loop(
+          Animated.timing(spinnerRotation, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          })
+        ).start();
+      };
+      startRotation();
+    }
+  }, [showLoadingOverlay, spinnerRotation]);
+
   return (
-    <SafeAreaView style={[styles.container, { paddingBottom: insets.bottom }]}>
-      <LinearGradient colors={["#0b1220", "#0b2a6f", "#0b1220"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFillObject} />
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}> 
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
+      <LinearGradient colors={isDark ? ["#0b1220", "#0b2a6f", "#0b1220"] : ["#e2e8f0", "#cbd5e1", "#e2e8f0"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFillObject} />
       {/* Top bar */}
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => setDrawerOpen(true)} style={styles.menuBtn}>
-          <Text style={styles.menuIcon}>≡</Text>
+        <TouchableOpacity onPress={() => setDrawerOpen(true)} style={[styles.menuBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.06)' }]}>
+          <Text style={[styles.menuIcon, { color: headerIconColor, fontSize: 24 }]}>≡</Text>
         </TouchableOpacity>
         <View style={styles.titleWrap}>
-          <Text style={styles.appTitle}>RapidRepo</Text>
+          <Text style={[styles.appTitle, { color: theme.textPrimary }]}>RapidRepo</Text>
         </View>
         <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
-          <Text style={styles.link}>👤</Text>
+          <Text style={[styles.link, { color: headerIconColor, fontSize: 22 }]}>👤</Text>
         </TouchableOpacity>
       </View>
 
@@ -1163,15 +1251,15 @@ export default function DashboardScreen({ navigation }) {
               <Text style={{ fontSize: 36 }}>🚗</Text>
             </View>
           </View>
-          <View style={styles.statusBadge}>
+          <View style={[styles.statusBadge, { borderColor: isDark ? '#0b1220' : '#e5e7eb' }]}>
             <Text style={styles.statusBadgeText}>{isOfflineMode ? 'Offline' : 'Online'}</Text>
           </View>
         </View>
-        <Text style={styles.orgName}>{agent?.tenantName || 'Your Organization'}</Text>
+        <Text style={[styles.orgName, { color: theme.textPrimary }]}>{agent?.tenantName || 'Your Organization'}</Text>
         <View style={styles.searchRow}>
           <View style={[styles.inputWrap, { flex: 0.5 }]}>
             <TextInput
-              style={[styles.input, { paddingRight: 36 }]}
+              style={[styles.input, { paddingRight: 36, backgroundColor: theme.inputBg, borderColor: theme.inputBorder, color: theme.textPrimary }]}
               value={chassisValue}
               onChangeText={(t) => {
                 const clean = String(t || '').toUpperCase().slice(0, 20);
@@ -1184,7 +1272,7 @@ export default function DashboardScreen({ navigation }) {
           </View>
           <View style={[styles.inputWrap, { flex: 0.5 }]}>
             <TextInput
-              style={[styles.input, { paddingRight: 36 }]}
+              style={[styles.input, { paddingRight: 36, backgroundColor: theme.inputBg, borderColor: theme.inputBorder, color: theme.textPrimary }]}
               value={searchValue}
               onChangeText={(t) => {
                 const digits = String(t || '').replace(/\D/g, '').slice(0, 4);
@@ -1197,24 +1285,24 @@ export default function DashboardScreen({ navigation }) {
             <Text style={styles.inputIcon}>🔍</Text>
           </View>
         </View>
-        <Text style={styles.searchHint}>
+        <Text style={[styles.searchHint, { color: theme.textSecondary }]}>
           Enter chassis number (3+ chars) or 4-digit registration number
         </Text>
       </Animated.View>
 
       {/* Stats cards */}
       <Animated.View style={[styles.statsGrid, { opacity: contentFade, transform: [{ translateY: contentSlide }] }]}>
-        <View style={styles.statCard}>
+        <View style={[styles.statCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
           <View>
-            <Text style={styles.statLabel}>Local Records</Text>
-            <Text style={styles.statValue}>{String(localCount || 0)}</Text>
+            <Text style={[styles.statLabel, { color: theme.statLabel }]}>Local Records</Text>
+            <Text style={[styles.statValue, { color: theme.textPrimary }]}>{String(localCount || 0)}</Text>
           </View>
           <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>🗃️</Text></View>
         </View>
-        <View style={styles.statCard}>
+        <View style={[styles.statCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
           <View>
-            <Text style={styles.statLabel}>Sync Status</Text>
-            <Text style={styles.statValue}>{isOfflineMode ? 'Offline' : 'Online'}</Text>
+            <Text style={[styles.statLabel, { color: theme.statLabel }]}>Sync Status</Text>
+            <Text style={[styles.statValue, { color: theme.textPrimary }]}>{isOfflineMode ? 'Offline' : 'Online'}</Text>
           </View>
           <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>{isOfflineMode ? '📴' : '📶'}</Text></View>
         </View>
@@ -1320,18 +1408,18 @@ export default function DashboardScreen({ navigation }) {
 
 
       {/* Bottom bar with improved layout */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { backgroundColor: theme.bottomBarBg, borderTopColor: theme.bottomBarBorder, paddingBottom: insets.bottom + 12 }]}>
         {/* Mode Toggle Section */}
         <View style={styles.modeSection}>
-          <Text style={styles.modeSectionTitle}>Connection Mode</Text>
-          <View style={styles.modeToggleContainer}>
+          <Text style={[styles.modeSectionTitle, { color: theme.modeSectionTitle }]}>Connection Mode</Text>
+          <View style={[styles.modeToggleContainer, { backgroundColor: theme.modeToggleContainer }]}>
             <TouchableOpacity
               style={[styles.modeToggleBtn, isOfflineMode && styles.modeToggleBtnActive]}
               onPress={() => setIsOfflineMode(true)}
             >
               <View style={styles.modeToggleContent}>
                 <Text style={styles.modeToggleIcon}>📴</Text>
-                <Text style={[styles.modeToggleText, isOfflineMode && styles.modeToggleTextActive]}>
+                <Text style={[styles.modeToggleText, { color: isOfflineMode ? '#111827' : theme.modeToggleText }]}>
                   Offline
                 </Text>
               </View>
@@ -1342,7 +1430,7 @@ export default function DashboardScreen({ navigation }) {
             >
               <View style={styles.modeToggleContent}>
                 <Text style={styles.modeToggleIcon}>📶</Text>
-                <Text style={[styles.modeToggleText, !isOfflineMode && styles.modeToggleTextActive]}>
+                <Text style={[styles.modeToggleText, { color: !isOfflineMode ? '#111827' : theme.modeToggleText }]}>
                   Online
                 </Text>
               </View>
@@ -1356,11 +1444,15 @@ export default function DashboardScreen({ navigation }) {
             colors={needsSync ? ["#EF4444", "#DC2626"] : (isSyncComplete ? ["#10B981", "#059669"] : ["#3B82F6", "#1D4ED8"])} 
             start={{ x: 0, y: 0 }} 
             end={{ x: 1, y: 1 }} 
-            style={[styles.primaryActionGradient, downloading && { opacity: 0.7 }]}
+            style={[styles.fullWidthActionGradient, downloading && { opacity: 0.7 }]}
           >
             <TouchableOpacity
-              style={styles.primaryActionBtn}
-              onPress={syncViaJsonDump}
+              style={styles.fullWidthActionBtn}
+              onPress={async () => {
+                if (downloading) return;
+                await refreshLocalCount();
+                await syncPerFile();
+              }}
               disabled={downloading}
             >
               <View style={styles.actionBtnContent}>
@@ -1368,43 +1460,22 @@ export default function DashboardScreen({ navigation }) {
                   {downloading ? '⏳' : '🔄'}
                 </Text>
                 <View style={styles.actionBtnTextContainer}>
-                  <Text style={styles.actionBtnTitle}>
+                  <Text style={[styles.actionBtnTitle, { color: '#FFFFFF' }]}>
                     {downloading ? 'Syncing...' : 
-                     (syncProgress.currentBatch > 0 ? `Sync Data (Batch ${syncProgress.currentBatch}/${syncProgress.totalBatches})` :
-                      (needsSync ? 'Sync Data (New Available!)' : 
-                       (isSyncComplete ? 'Sync Data (Complete)' : 'Sync Data')))}
+                     (syncProgress.currentBatch > 0 ? `Batch ${syncProgress.currentBatch}/${syncProgress.totalBatches}` :
+                      (needsSync ? 'Sync Data' : 
+                       (isSyncComplete ? 'Sync Data' : 'Sync Data')))}
                   </Text>
-                  <Text style={styles.actionBtnSubtitle}>
+                  <Text style={[styles.actionBtnSubtitle, { color: 'rgba(255,255,255,0.9)' }]}>
                     {downloading ? 'Please wait' : 
-                     (syncProgress.currentBatch > 0 ? `${syncProgress.downloadedRecords.toLocaleString()} records downloaded` :
-                      (needsSync ? 'New records available' : 
-                       (isSyncComplete ? 'All data downloaded' : 'Start downloading')))}
+                     (syncProgress.currentBatch > 0 ? `${syncProgress.downloadedRecords.toLocaleString()} rec` :
+                      (needsSync ? 'New available' : 
+                       (isSyncComplete ? 'Complete' : 'Start sync')))}
                   </Text>
                 </View>
               </View>
             </TouchableOpacity>
           </LinearGradient>
-
-          <LinearGradient 
-            colors={["#3B82F6", "#1D4ED8"]} 
-            start={{ x: 0, y: 0 }} 
-            end={{ x: 1, y: 1 }} 
-            style={styles.secondaryActionGradient}
-          >
-            <TouchableOpacity
-              style={styles.secondaryActionBtn}
-              onPress={refreshLocalCount}
-            >
-              <View style={styles.actionBtnContent}>
-                <Text style={styles.actionBtnIcon}>🔄</Text>
-                <View style={styles.actionBtnTextContainer}>
-                  <Text style={styles.actionBtnTitle}>Refresh</Text>
-                  <Text style={styles.actionBtnSubtitle}>Check updates</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          </LinearGradient>
-
         </View>
       </View>
 
@@ -1412,9 +1483,19 @@ export default function DashboardScreen({ navigation }) {
       {showLoadingOverlay && (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingContainer}>
-            <View style={styles.loadingSpinner}>
+            <Animated.View style={[
+              styles.loadingSpinner,
+              {
+                transform: [{
+                  rotate: spinnerRotation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0deg', '360deg']
+                  })
+                }]
+              }
+            ]}>
               <Text style={styles.loadingSpinnerText}>⏳</Text>
-            </View>
+            </Animated.View>
             <Text style={styles.loadingTitle}>Downloading</Text>
             <Text style={styles.loadingMessage}>Please Wait...</Text>
             <View style={styles.loadingProgressContainer}>
@@ -1426,7 +1507,6 @@ export default function DashboardScreen({ navigation }) {
                   ]} 
                 />
               </View>
-              <Text style={styles.loadingProgressText}>{downloadProgress}%</Text>
             </View>
           </View>
         </View>
@@ -1438,29 +1518,29 @@ export default function DashboardScreen({ navigation }) {
       {/* Simple left drawer */}
       <Modal visible={drawerOpen} transparent animationType="none" onRequestClose={() => setDrawerOpen(false)}>
         <Animated.View style={[styles.drawerOverlay, { opacity: overlayOpacity }] }>
-          <Animated.View style={[styles.drawer, { transform: [{ translateX: drawerTranslate }] }] }>
+          <Animated.View style={[styles.drawer, { transform: [{ translateX: drawerTranslate }], backgroundColor: theme.drawerBg }] }>
             <View style={styles.drawerHeader}>
               <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{String((agent?.name || 'A')[0] || 'A').toUpperCase()}</Text>
+                <Text style={[styles.avatarText, { color: isDark ? '#c7d2fe' : '#3730A3' }]}>{String((agent?.name || 'A')[0] || 'A').toUpperCase()}</Text>
               </View>
               <View style={{ marginLeft: 12 }}>
-                <Text style={styles.drawerAgentName}>{agent?.name || 'Agent'}</Text>
-                <Text style={styles.drawerAgentSub}>{agent?.tenantName || 'Organization'}</Text>
+                <Text style={[styles.drawerAgentName, { color: theme.drawerText }]}>{agent?.name || 'Agent'}</Text>
+                <Text style={[styles.drawerAgentSub, { color: theme.drawerMuted }]}>{agent?.tenantName || 'Organization'}</Text>
               </View>
             </View>
-            <Text style={styles.drawerTitle}>Menu</Text>
-            <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); }}>
-              <Text style={styles.drawerItemText}>🏠  Dashboard</Text>
+            <Text style={[styles.drawerTitle, { color: theme.drawerMuted }]}>Menu</Text>
+            <TouchableOpacity style={[styles.drawerItem, { backgroundColor: 'transparent' }]} onPress={() => { setDrawerOpen(false); }}>
+              <Text style={[styles.drawerItemText, { color: theme.drawerText }]}>🏠  Dashboard</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); navigation.navigate('IDCard'); }}>
-              <Text style={styles.drawerItemText}>🆔  My ID Card</Text>
+            <TouchableOpacity style={[styles.drawerItem, { backgroundColor: 'transparent' }]} onPress={() => { setDrawerOpen(false); navigation.navigate('IDCard'); }}>
+              <Text style={[styles.drawerItemText, { color: theme.drawerText }]}>🆔  My ID Card</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.drawerItem} onPress={() => { setDrawerOpen(false); navigation.navigate('Sync'); }}>
-              <Text style={styles.drawerItemText}>🔄  Data Sync</Text>
+            <TouchableOpacity style={[styles.drawerItem, { backgroundColor: 'transparent' }]} onPress={() => { setDrawerOpen(false); navigation.navigate('Sync'); }}>
+              <Text style={[styles.drawerItemText, { color: theme.drawerText }]}>🔄  Data Sync</Text>
             </TouchableOpacity>
-            <View style={styles.drawerDivider} />
-            <TouchableOpacity style={[styles.drawerItem, { backgroundColor: '#FEF2F2' }]} onPress={logout}>
-              <Text style={[styles.drawerItemText, { color: '#B91C1C' }]}>🚪  Logout</Text>
+            <View style={[styles.drawerDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6' }]} />
+            <TouchableOpacity style={[styles.drawerItem, { backgroundColor: isDark ? 'rgba(239,68,68,0.12)' : '#FEF2F2' }]} onPress={logout}>
+              <Text style={[styles.drawerItemText, { color: isDark ? '#FCA5A5' : '#B91C1C' }]}>🚪  Logout</Text>
             </TouchableOpacity>
           </Animated.View>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setDrawerOpen(false)} />
@@ -1471,7 +1551,7 @@ export default function DashboardScreen({ navigation }) {
   );
 }
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#10121A', paddingHorizontal: 10 },
+  container: { flex: 1, backgroundColor: '#10121A', paddingHorizontal: 10, paddingBottom: 0 },
   topBar: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
   menuBtn: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 8 },
   menuIcon: { color: '#fff', fontSize: 18, fontWeight: '900' },
@@ -1683,7 +1763,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center'
   },
   
-bottomBar: { 
+  bottomBar: { 
     position: 'absolute', 
     bottom: 0, 
     left: 0, 
@@ -1693,8 +1773,7 @@ bottomBar: {
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12
+    paddingTop: 16
   },
   
   // Mode Toggle Section
@@ -1792,8 +1871,8 @@ bottomBar: {
     flexDirection: 'row',
     gap: 12
   },
-    primaryActionGradient: {
-    flex: 2,
+  fullWidthActionGradient: {
+    flex: 1,
     borderRadius: 16,
     shadowColor: '#10B981',
     shadowOffset: { width: 0, height: 4 },
@@ -1801,26 +1880,9 @@ bottomBar: {
     shadowRadius: 8,
     elevation: 6
   },
-
-    secondaryActionGradient: {
-    flex: 1,
-    borderRadius: 16,
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6
-  },
-    primaryActionBtn: {
+  fullWidthActionBtn: {
     paddingVertical: 16,
     paddingHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-
-    secondaryActionBtn: {
-    paddingVertical: 16,
-    paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center'
   },
@@ -1842,14 +1904,14 @@ bottomBar: {
 
     actionBtnTitle: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 0.5
+    letterSpacing: 0.3
   },
 
     actionBtnSubtitle: {
     color: 'rgba(255, 255, 255, 0.8)',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '500',
     marginTop: 1
   },
@@ -1935,11 +1997,6 @@ bottomBar: {
     height: '100%',
     backgroundColor: '#3B82F6',
     borderRadius: 4,
-  },
-  loadingProgressText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#3B82F6',
   },
   // Sync Progress Card Styles
   syncProgressCard: {

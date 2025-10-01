@@ -12,12 +12,14 @@ import DashboardScreen from './screens/DashboardScreen';
 import SearchResultsScreen from './screens/SearchResultsScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import IDCardScreen from './screens/IDCardScreen';
-import SyncScreen from './screens/SyncScreen';
 import OfflineDataBrowser from './screens/OfflineDataBrowser';
-import GlobalSyncOverlay from './components/GlobalSyncOverlay';
+import SyncScreen from './screens/SyncScreen';
+import SettingsScreen from './screens/SettingsScreen';
 import JSONExportScreen from './screens/JSONExportScreen';
+import GlobalSyncOverlay from './components/GlobalSyncOverlay';
 import UpdateNotification from './components/UpdateNotification';
 import versionManager from './utils/versionManager';
+import { startSmartBackgroundSync } from './utils/smartBackgroundSync';
 
 const Stack = createNativeStackNavigator();
 
@@ -120,6 +122,14 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [isLoggedIn]);
 
+  // Start smart background sync when user logs in
+  useEffect(() => {
+    if (isLoggedIn) {
+      console.log('🚀 Starting smart background sync...');
+      startSmartBackgroundSync();
+    }
+  }, [isLoggedIn]);
+
   const handleUpdateModalClose = () => {
     setShowUpdateModal(false);
     setUpdateInfo(null);
@@ -128,13 +138,30 @@ export default function App() {
   return (
     <NavigationContainer>
       {!isBootstrapping && (
-        <Stack.Navigator initialRouteName={isLoggedIn ? 'Dashboard' : 'Login'}>
+        <Stack.Navigator 
+          initialRouteName={isLoggedIn ? 'Dashboard' : 'Login'}
+          screenOptions={{
+            animation: 'slide_from_right',
+            animationDuration: 200,
+            gestureEnabled: true,
+            gestureDirection: 'horizontal'
+          }}
+        >
           <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Dashboard" component={DashboardScreen} options={{ headerShown: false }} />
-          <Stack.Screen name="SearchResults" component={SearchResultsScreen} options={{ headerShown: false }} />
+          <Stack.Screen 
+            name="SearchResults" 
+            component={SearchResultsScreen} 
+            options={{ 
+              headerShown: false,
+              animation: 'fade',
+              animationDuration: 150
+            }} 
+          />
           <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
           <Stack.Screen name="IDCard" component={IDCardScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Sync" component={SyncScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: true, title: 'Sync Settings' }} />
           <Stack.Screen name="OfflineData" component={OfflineDataBrowser} options={{ headerShown: true, title: 'Offline Data' }} />
           <Stack.Screen name="JSONExport" component={JSONExportScreen} options={{ headerShown: true, title: 'Export JSON' }} />
         </Stack.Navigator>

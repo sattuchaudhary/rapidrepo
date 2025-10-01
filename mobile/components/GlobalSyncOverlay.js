@@ -1,49 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
-import SyncManager from '../utils/SyncManager';
-import SimpleProgressBar from './SimpleProgressBar';
+import React from 'react';
+import { StyleSheet } from 'react-native';
 
 const GlobalSyncOverlay = () => {
-  const [{ isSyncing, progress }, setState] = useState(SyncManager.getState());
-  const [minimized, setMinimized] = useState(false);
-
-  useEffect(() => {
-    const unsub = SyncManager.subscribe((state) => setState(state));
-    return unsub;
-  }, []);
-
-  if (!isSyncing) return null;
-
-  const percentage = Math.max(0, Math.min(100, progress?.percentage || 0));
-
-  if (minimized) {
-    return (
-      <View style={styles.fabContainer} pointerEvents="box-none">
-        <TouchableOpacity style={styles.fab} onPress={() => setMinimized(false)}>
-          <Text style={styles.fabText}>{percentage}%</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  return (
-    <Modal transparent visible animationType="fade">
-      <View style={styles.overlay}>
-        <View style={styles.card}>
-          <Text style={styles.title}>Sync in progress</Text>
-          <Text style={styles.subtitle}>
-            {(progress?.processed || 0).toLocaleString()} / {(progress?.total || 0).toLocaleString()} records
-          </Text>
-          <SimpleProgressBar progress={percentage} height={10} />
-          <View style={styles.row}>
-            <TouchableOpacity style={styles.btn} onPress={() => setMinimized(true)}>
-              <Text style={styles.btnText}>Minimize</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
+  return null;
 };
 
 const styles = StyleSheet.create({

@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { StyleSheet, View, Text, FlatList, ActivityIndicator, Modal, TouchableOpacity, TextInput, StatusBar, ScrollView, InteractionManager } from 'react-native';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { StyleSheet, View, Text, FlatList, ActivityIndicator, Modal, TouchableOpacity, TextInput, StatusBar, ScrollView, InteractionManager, useColorScheme, Animated, Appearance, Keyboard } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
@@ -11,9 +11,37 @@ export default function SearchResultsScreen({ route, navigation }) {
   const { q = '', preloadedData = null, fromDashboard = false, instantSearch = false, offline = false } = route.params || {};
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
+  const [colorScheme, setColorScheme] = useState(useColorScheme());
+  const isDark = colorScheme === 'dark';
+  const theme = {
+    bg: isDark ? '#0b1220' : '#ffffff',
+    cardBg: isDark ? '#111827' : '#ffffff',
+    textPrimary: isDark ? '#e5e7eb' : '#111827',
+    textSecondary: isDark ? '#9CA3AF' : '#666',
+    inputBg: isDark ? '#0f172a' : '#F3F4F6',
+    inputBorder: isDark ? '#1f2937' : '#E5E7EB',
+    surfaceBorder: isDark ? 'rgba(255,255,255,0.12)' : '#F1F1F1',
+    accent: '#2563eb'
+  };
   
-  // Initialize results with preloadedData if available
-  const initialResults = Array.isArray(preloadedData) && preloadedData.length > 0 ? preloadedData : [];
+  // Helper: dedupe results by normalized keys (regNo > chassisNo > _id)
+  const dedupeResults = useCallback((items) => {
+    const output = [];
+    const seen = new Set();
+    for (const it of Array.isArray(items) ? items : []) {
+      const regKey = String(it?.regNo || '').trim().toUpperCase();
+      const chassisKey = !regKey ? String(it?.chassisNo || '').trim().toUpperCase() : '';
+      const idKey = !regKey && !chassisKey ? String(it?._id || it?.id || '') : '';
+      const key = regKey || chassisKey || idKey;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      output.push(it);
+    }
+    return output;
+  }, []);
+
+  // Initialize results with preloadedData if available (deduped)
+  const initialResults = Array.isArray(preloadedData) && preloadedData.length > 0 ? dedupeResults(preloadedData) : [];
   const [results, setResults] = useState(initialResults);
   
   const [error, setError] = useState('');
@@ -31,6 +59,25 @@ export default function SearchResultsScreen({ route, navigation }) {
   const [suppressClearOnce, setSuppressClearOnce] = useState(false);
   const [agent, setAgent] = useState(null);
   const [fieldMapping, setFieldMapping] = useState(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const chassisInputRef = useRef(null);
+  const regSuffixInputRef = useRef(null);
+  
+  // Keep content visible above keyboard
+  useEffect(() => {
+    const onShow = (e) => setKeyboardHeight(e?.endCoordinates?.height || 0);
+    const onHide = () => setKeyboardHeight(0);
+    const subShow = Keyboard.addListener('keyboardDidShow', onShow);
+    const subHide = Keyboard.addListener('keyboardDidHide', onHide);
+    return () => {
+      subShow?.remove && subShow.remove();
+      subHide?.remove && subHide.remove();
+    };
+  }, []);
+  
+  // Animation values for smooth transitions
+  const fadeAnim = useState(new Animated.Value(0))[0];
+  const slideAnim = useState(new Animated.Value(20))[0];
 
   // Helper: log search click to server with robust error reporting
   const logSearchClick = useCallback(async (vehicle, queryText) => {
@@ -82,56 +129,65 @@ export default function SearchResultsScreen({ route, navigation }) {
     setSearchIndex({ regIndex, chassisIndex });
   };
 
-  // Load logged-in agent to drive role-based UI
+  // Listen for theme changes
   useEffect(() => {
-    (async () => {
-      try {
-        const stored = await SecureStore.getItemAsync('agent');
-        if (stored) setAgent(JSON.parse(stored));
-      } catch (_) {}
-    })();
+    const subscription = Appearance.addChangeListener(({ colorScheme: newColorScheme }) => {
+      setColorScheme(newColorScheme);
+    });
+    return () => subscription?.remove();
   }, []);
 
-  // Load field mapping from server to control which fields show in detail modal
+  // Load logged-in agent and field mapping in parallel - Optimized for faster loading
   useEffect(() => {
     (async () => {
       try {
+        // Load agent data first (faster)
+        const stored = await SecureStore.getItemAsync('agent');
+        if (stored) setAgent(JSON.parse(stored));
+        
+        // Load field mapping in background (non-blocking)
         const token = await SecureStore.getItemAsync('token');
-        if (!token) return;
-        const res = await axios.get(`${getBaseURL()}/api/tenants/field-mapping`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res?.data?.success) {
-          console.log('Field mapping received:', res.data.fieldMapping);
-          setFieldMapping(res.data.fieldMapping || null);
+        if (token) {
+          // Defer field mapping loading to avoid blocking initial render
+          setTimeout(async () => {
+            try {
+              const res = await axios.get(`${getBaseURL()}/api/tenants/field-mapping`, {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+              if (res?.data?.success) {
+                console.log('Field mapping received:', res.data.fieldMapping);
+                setFieldMapping(res.data.fieldMapping || null);
+              }
+            } catch (error) {
+              console.error('Error fetching field mapping:', error);
+              // Set default field mapping if API fails
+              setFieldMapping({
+                regNo: true,
+                chassisNo: true,
+                loanNo: true,
+                bank: true,
+                make: true,
+                customerName: true,
+                engineNo: true,
+                emiAmount: true,
+                address: true,
+                branch: true,
+                pos: true,
+                model: true,
+                productName: true,
+                bucket: true,
+                season: true,
+                inYard: false,
+                yardName: false,
+                yardLocation: false,
+                status: true,
+                uploadDate: false,
+                fileName: false
+              });
+            }
+          }, 100); // Small delay to prioritize UI rendering
         }
-      } catch (error) {
-        console.error('Error fetching field mapping:', error);
-        // Set default field mapping if API fails
-        setFieldMapping({
-          regNo: true,
-          chassisNo: true,
-          loanNo: true,
-          bank: true,
-          make: true,
-          customerName: true,
-          engineNo: true,
-          emiAmount: true,
-          address: true,
-          branch: true,
-          pos: true,
-          model: true,
-          productName: true,
-          bucket: true,
-          season: true,
-          inYard: false,
-          yardName: false,
-          yardLocation: false,
-          status: true,
-          uploadDate: false,
-          fileName: false
-        });
-      }
+      } catch (_) {}
     })();
   }, []);
 
@@ -164,15 +220,13 @@ export default function SearchResultsScreen({ route, navigation }) {
       const cacheKey = `${qVal}_${type}_${offline ? 'offline' : 'online'}`;
       if (searchCache.has(cacheKey)) {
         const cachedResults = searchCache.get(cacheKey);
-        setResults(cachedResults);
+        // Safety: ensure deduplication even for cached entries
+        setResults(dedupeResults(cachedResults));
         setError('');
-        return; // No loading state for cached results
+        return; // INSTANT results from cache
       }
       
-      // Only show loading if explicitly requested (for online searches)
-      if (showLoading) {
-        setLoading(true); 
-      }
+      // INSTANT search - no loading states
       setError('');
       
       // Only use local dataset in explicit OFFLINE mode; online always fetches server
@@ -223,15 +277,8 @@ export default function SearchResultsScreen({ route, navigation }) {
             }
           }
           
-          // Deduplicate by normalized regNo
-          const seen = new Set();
-          const unique = [];
-          for (const it of filtered) {
-            const k = String(it.regNo || '').trim().toUpperCase();
-            if (!k || seen.has(k)) continue;
-            seen.add(k);
-            unique.push(it);
-          }
+          // Deduplicate
+          const unique = dedupeResults(filtered);
           
           // Cache results for future instant access
           setSearchCache(prev => {
@@ -251,10 +298,16 @@ export default function SearchResultsScreen({ route, navigation }) {
             setRegSuffixInput('');
             setChassisInput('');
             setTimeout(() => setSuppressClearOnce(false), 0);
+            setTimeout(() => {
+              if (type === 'reg') {
+                regSuffixInputRef.current && regSuffixInputRef.current.focus();
+              } else if (type === 'chassis') {
+                chassisInputRef.current && chassisInputRef.current.focus();
+              }
+            }, 50);
           }
           setError('');
-          setLoading(false);
-          return; // Exit early with offline results
+          return; // INSTANT results - no loading state
         } else {
           // Fallback to SQLite-based offline search
           let rows = [];
@@ -275,16 +328,22 @@ export default function SearchResultsScreen({ route, navigation }) {
               rows.push(it);
             }
           }
-          setResults(rows || []);
+          setResults(dedupeResults(rows || []));
           if (clearInputsAfter) {
             setSuppressClearOnce(true);
             setRegSuffixInput('');
             setChassisInput('');
             setTimeout(() => setSuppressClearOnce(false), 0);
+            setTimeout(() => {
+              if (type === 'reg') {
+                regSuffixInputRef.current && regSuffixInputRef.current.focus();
+              } else if (type === 'chassis') {
+                chassisInputRef.current && chassisInputRef.current.focus();
+              }
+            }, 50);
           }
           setError(rows && rows.length > 0 ? '' : '');
-          setLoading(false);
-          return;
+          return; // INSTANT results
         }
       } else {
         // ONLINE MODE: Fetch from server
@@ -302,14 +361,7 @@ export default function SearchResultsScreen({ route, navigation }) {
             const needle = String(qVal).trim().toLowerCase();
             items = items.filter(it => String(it.chassisNo || '').toLowerCase().includes(needle));
           }
-          const seen = new Set();
-          const unique = [];
-          for (const it of items) {
-            const k = String(it.regNo || '').trim().toUpperCase();
-            if (!k || seen.has(k)) continue;
-            seen.add(k);
-            unique.push(it);
-          }
+          const unique = dedupeResults(items);
           setSearchCache(prev => {
             const newCache = new Map(prev);
             newCache.set(cacheKey, unique);
@@ -325,13 +377,20 @@ export default function SearchResultsScreen({ route, navigation }) {
             setRegSuffixInput('');
             setChassisInput('');
             setTimeout(() => setSuppressClearOnce(false), 0);
+            setTimeout(() => {
+              if (type === 'reg') {
+                regSuffixInputRef.current && regSuffixInputRef.current.focus();
+              } else if (type === 'chassis') {
+                chassisInputRef.current && chassisInputRef.current.focus();
+              }
+            }, 50);
           }
         } catch (err) {
           setError(err.response?.data?.message || 'Search failed');
         }
       }
-    } finally { 
-      setLoading(false); 
+    } catch (error) {
+      console.error('Search error:', error);
     }
   };
 
@@ -361,24 +420,28 @@ export default function SearchResultsScreen({ route, navigation }) {
     return { left, right };
   }, [results, azMode]);
 
-  // Handle pre-loaded data from Dashboard (authoritative)
+  // Handle pre-loaded data from Dashboard (authoritative) - INSTANT display
   useEffect(() => {
     if (fromDashboard && Array.isArray(preloadedData) && preloadedData.length > 0) {
-      // Force update results immediately with timeout to ensure state update
-      setTimeout(() => {
-        setResults(preloadedData);
-        setLoading(false);
-        setError('');
-        // Clear header inputs so user can type next query immediately
-        setRegSuffixInput('');
-        setChassisInput('');
-      }, 100);
+      // INSTANT state update - no delays
+      setResults(dedupeResults(preloadedData));
+      setLoading(false);
+      setError('');
       
-      // Prepare data source for future searches
+      // INSTANT animation - no delays
+      fadeAnim.setValue(1);
+      slideAnim.setValue(0);
+      
+      // Clear header inputs immediately
+      setRegSuffixInput('');
+      setChassisInput('');
+      
+      // Prepare data source for future searches (deferred to avoid blocking UI)
       if (offline) {
         // In offline mode we can use a preloaded subset; otherwise rely on full SQLite dataset
         setOfflineData(preloadedData);
-        buildLocalSearchIndex(preloadedData);
+        // Defer index building to avoid blocking initial render
+        setTimeout(() => buildLocalSearchIndex(preloadedData), 0);
       }
       
       return;
@@ -403,7 +466,6 @@ export default function SearchResultsScreen({ route, navigation }) {
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(async () => {
       try {
-        // Load offline dump from filesystem (created by download flow)
         const dataPath = `${FileSystem.documentDirectory}offline_data.json`;
         const exists = await FileSystem.getInfoAsync(dataPath);
         if (exists?.exists) {
@@ -411,7 +473,7 @@ export default function SearchResultsScreen({ route, navigation }) {
           const parsed = JSON.parse(offlineStr);
           const arr = Array.isArray(parsed?.records) ? parsed.records : [];
           setOfflineData(arr);
-          buildLocalSearchIndex(arr);
+          setTimeout(() => buildLocalSearchIndex(arr), 50);
         }
       } catch (error) {
         console.error('Error loading cached offline data:', error);
@@ -444,7 +506,7 @@ export default function SearchResultsScreen({ route, navigation }) {
     </TouchableOpacity>
   ), [regSuffixInput, chassisInput, logSearchClick]);
 
-  // Trigger registration suffix search when exactly 4 digits
+  // Trigger registration suffix search when exactly 4 digits - INSTANT
   useEffect(() => {
     const value = String(regSuffixInput || '').trim();
     
@@ -459,19 +521,21 @@ export default function SearchResultsScreen({ route, navigation }) {
       return;
     }
     
-    if (!/^\d{4}$/.test(value)) { 
-      if (hasUserSearched) setResults([]);
-      return; 
+    if (!/^\d{4}$/.test(value)) {
+      // Preserve previous results while typing partial input
+      // Only clear when user fully clears the input
+      if (value === '' && hasUserSearched) setResults([]);
+      return;
     }
     
     // Mark that user has started searching
     setHasUserSearched(true);
     
-    // INSTANT search - no loading state; clear inputs after showing results
+    // INSTANT search - immediate execution
     runSearch(value, 'reg', false, true);
   }, [regSuffixInput, q, fromDashboard, preloadedData, hasUserSearched]);
 
-  // Trigger chassis search when input length >= 3 (INSTANT for local data)
+  // Trigger chassis search when input length >= 3 - INSTANT
   useEffect(() => {
     const value = String(chassisInput || '').trim();
     
@@ -485,7 +549,7 @@ export default function SearchResultsScreen({ route, navigation }) {
     if (value.length >= 3) {
       // Mark that user has started searching
       setHasUserSearched(true);
-      // INSTANT search for local data - no loading state; clear inputs after
+      // INSTANT search - immediate execution
       runSearch(value, 'chassis', false, true);
     } else if (value.length === 0) {
       if (hasUserSearched) setResults([]);
@@ -493,40 +557,45 @@ export default function SearchResultsScreen({ route, navigation }) {
   }, [chassisInput, fromDashboard, preloadedData, hasUserSearched]);
 
   return (
-    <SafeAreaView style={[styles.container, {  }] }>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg } ] }>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
       <View style={styles.headerBar}>
         <TextInput
-          style={[styles.input, { flex: 0.5 }]}
+          ref={chassisInputRef}
+          style={[styles.input, { flex: 0.5, backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.inputBorder }]}
           value={chassisInput}
           onChangeText={(t)=>setChassisInput(String(t || '').toUpperCase())}
           placeholder="Chassis number"
           autoCapitalize="characters"
+          blurOnSubmit={false}
         />
         <TextInput
-          style={[styles.input, { flex: 0.5 }]}
+          ref={regSuffixInputRef}
+          style={[styles.input, { flex: 0.5, backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.inputBorder }]}
           value={regSuffixInput}
           onChangeText={(t)=>setRegSuffixInput(String(t||'').replace(/\D/g,'').slice(0,4))}
           placeholder="Reg tail (1234)"
           keyboardType="numeric"
           maxLength={4}
+          blurOnSubmit={false}
         />
       </View>
       
 
-      {!!error && <Text style={styles.error}>{error}</Text>}
+      {!!error && <Text style={[styles.error, { color: isDark ? '#F87171' : 'red' }]}>{error}</Text>}
       
-      
+      {/* INSTANT results - no loading states */}
       {results.length === 0 && (
-        <View style={styles.center}><Text>No results found</Text></View>
+        <View style={styles.center}><Text style={{ color: theme.textSecondary }}>No results found</Text></View>
       )}
       {/* Non A–Z list removed; always showing A–Z columns */}
       {results.length > 0 && azMode && (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 6 }}>
-          <View style={{ flexDirection: 'row', gap: 12 }}>
-            <View style={{ flex: 1, gap: 8 }}>
-              {azColumns.left.map((item, index) => (
-                <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={styles.listItem} onPress={async () => {
+        <Animated.View style={{ flex: 1, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: keyboardHeight + 6 }} keyboardShouldPersistTaps="always" keyboardDismissMode="none">
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={{ flex: 1, gap: 8 }}>
+                {azColumns.left.map((item, index) => (
+                <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={[styles.listItem, { backgroundColor: theme.cardBg, borderColor: theme.surfaceBorder }]} onPress={async () => {
                   try {
                     const token = await SecureStore.getItemAsync('token');
                     const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
@@ -544,13 +613,13 @@ export default function SearchResultsScreen({ route, navigation }) {
                     setDetailOpen(true);
                   }
                 }}>
-                  <Text numberOfLines={1} style={styles.listTitle}>{item.regNo || ''}</Text>
+                  <Text numberOfLines={1} style={[styles.listTitle, { color: theme.textPrimary }]}>{item.regNo || ''}</Text>
                 </TouchableOpacity>
               ))}
             </View>
             <View style={{ flex: 1, gap: 8 }}>
               {azColumns.right.map((item, index) => (
-                <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={styles.listItem} onPress={async () => {
+                <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={[styles.listItem, { backgroundColor: theme.cardBg, borderColor: theme.surfaceBorder }]} onPress={async () => {
                   try {
                     const token = await SecureStore.getItemAsync('token');
                     const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
@@ -568,37 +637,38 @@ export default function SearchResultsScreen({ route, navigation }) {
                     setDetailOpen(true);
                   }
                 }}>
-                  <Text numberOfLines={1} style={styles.listTitle}>{item.regNo || ''}</Text>
+                  <Text numberOfLines={1} style={[styles.listTitle, { color: theme.textPrimary }]}>{item.regNo || ''}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
         </ScrollView>
+        </Animated.View>
       )}
 
       <Modal visible={detailOpen} transparent animationType="slide" onRequestClose={() => setDetailOpen(false)}>
         <View style={styles.modalWrap}>
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, { backgroundColor: theme.cardBg }] }>
             {detail ? (
               <ScrollView showsVerticalScrollIndicator={false}>
                 {/* Header Section */}
-                <View style={styles.modalHeader}>
+                <View style={[styles.modalHeader, { backgroundColor: isDark ? '#0f172a' : '#F8FAFC', borderBottomColor: theme.surfaceBorder }] }>
                   <View style={styles.vehicleIcon}>
                     <Text style={styles.vehicleIconText}>🚗</Text>
                   </View>
                   <View style={styles.headerContent}>
-                    <Text style={styles.modalTitle}>{detail.regNo || 'Vehicle'}</Text>
-                    <Text style={styles.vehicleType}>{detail.vehicleType || 'Vehicle'}</Text>
+                    <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>{detail.regNo || 'Vehicle'}</Text>
+                    <Text style={[styles.vehicleType, { color: theme.textSecondary }]}>{detail.vehicleType || 'Vehicle'}</Text>
                   </View>
-                  <TouchableOpacity onPress={() => setDetailOpen(false)} style={styles.closeBtn}>
-                    <Text style={styles.closeBtnText}>✕</Text>
+                  <TouchableOpacity onPress={() => setDetailOpen(false)} style={[styles.closeBtn, { backgroundColor: isDark ? '#1f2937' : '#E5E7EB' }]}>
+                    <Text style={[styles.closeBtnText, { color: theme.textSecondary }]}>✕</Text>
                   </TouchableOpacity>
                 </View>
 
                 {isRepoAgent ? (
                   <>
-                    <View style={styles.detailsSection}>
-                      <Text style={styles.sectionTitle}>Vehicle Information</Text>
+                    <View style={[styles.detailsSection, { borderBottomColor: theme.surfaceBorder }]}>
+                      <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Vehicle Information</Text>
                       {(() => {
                         const fm = fieldMapping || {};
                         console.log('Field mapping in render (Repo Agent):', fm);
@@ -608,13 +678,10 @@ export default function SearchResultsScreen({ route, navigation }) {
                           // Show field with N/A if disabled, don't hide completely
                           const displayValue = shouldHide ? 'N/A' : (value ?? '—');
                           return (
-                            <View key={label} style={styles.detailRow}>
-                              <View style={styles.detailIcon}><Text style={styles.detailIconText}>{icon}</Text></View>
-                        <View style={styles.detailContent}>
-                                <Text style={styles.detailLabel}>{label}</Text>
-                                <Text style={styles.detailValue}>{displayValue}</Text>
-                        </View>
-                      </View>
+                            <View key={label} style={styles.compactDetailRow}>
+                              <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>{label}:</Text>
+                              <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{displayValue}</Text>
+                            </View>
                           );
                         };
                         return [
@@ -647,56 +714,36 @@ export default function SearchResultsScreen({ route, navigation }) {
                     </View>
 
                     {/* Confirmed by Section */}
-                    <View style={styles.detailsSection}>
-                      <Text style={styles.sectionTitle}>Confirmed By</Text>
+                    <View style={[styles.detailsSection, { borderBottomColor: theme.surfaceBorder }]}>
+                      <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Confirmed By</Text>
                       
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>👤</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>1st Name</Text>
-                          <Text style={styles.detailValue}>{detail.confirmedBy1stName || 'N/A'}</Text>
-                        </View>
+                      <View style={styles.compactDetailRow}>
+                        <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>1st Name:</Text>
+                        <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{detail.confirmedBy1stName || 'N/A'}</Text>
                         <TouchableOpacity style={styles.whatsappIcon}>
                           <Text style={styles.whatsappIconText}>📱</Text>
                         </TouchableOpacity>
                       </View>
 
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>📞</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Number</Text>
-                          <Text style={styles.detailValue}>{detail.confirmedBy1stNumber || 'N/A'}</Text>
-                        </View>
+                      <View style={styles.compactDetailRow}>
+                        <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Number:</Text>
+                        <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{detail.confirmedBy1stNumber || 'N/A'}</Text>
                         <TouchableOpacity style={styles.whatsappIcon}>
                           <Text style={styles.whatsappIconText}>📱</Text>
                         </TouchableOpacity>
                       </View>
 
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>👤</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>2nd Name</Text>
-                          <Text style={styles.detailValue}>{detail.confirmedBy2ndName || 'N/A'}</Text>
-                        </View>
+                      <View style={styles.compactDetailRow}>
+                        <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>2nd Name:</Text>
+                        <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{detail.confirmedBy2ndName || 'N/A'}</Text>
                         <TouchableOpacity style={styles.whatsappIcon}>
                           <Text style={styles.whatsappIconText}>📱</Text>
                         </TouchableOpacity>
                       </View>
 
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>📞</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Number</Text>
-                          <Text style={styles.detailValue}>{detail.confirmedBy2ndNumber || 'N/A'}</Text>
-                        </View>
+                      <View style={styles.compactDetailRow}>
+                        <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Number:</Text>
+                        <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{detail.confirmedBy2ndNumber || 'N/A'}</Text>
                         <TouchableOpacity style={styles.whatsappIcon}>
                           <Text style={styles.whatsappIconText}>📱</Text>
                         </TouchableOpacity>
@@ -717,29 +764,13 @@ export default function SearchResultsScreen({ route, navigation }) {
                               return value || '—';
                             };
                             
-                            // Always include basic fields
+                            // Only send required fields
                             text += `👤 *Name:* ${getFieldValue(detail.customerName, 'customerName')}\n`;
                             text += `🔢 *Vehicle:* ${getFieldValue(detail.regNo, 'regNo')}\n`;
                             text += `🔧 *Chassis:* ${getFieldValue(detail.chassisNo, 'chassisNo')}\n`;
-                            
-                            // Add other fields based on mapping
-                            text += `📄 *Agreement No:* ${getFieldValue(detail.loanNo, 'loanNo')}\n`;
-                            text += `🏦 *Bank:* ${getFieldValue(detail.bank, 'bank')}\n`;
+                            text += `⚙️ *Engine:* ${getFieldValue(detail.engineNo, 'engineNo')}\n`;
                             text += `🏭 *Make:* ${getFieldValue(detail.make, 'make')}\n`;
                             text += `🚘 *Model:* ${getFieldValue(detail.model, 'model')}\n`;
-                            text += `⚙️ *Engine:* ${getFieldValue(detail.engineNo, 'engineNo')}\n`;
-                            text += `💳 *Emi:* ${getFieldValue(detail.emiAmount, 'emiAmount')}\n`;
-                            text += `🏢 *Branch:* ${getFieldValue(detail.branch, 'branch')}\n`;
-                            text += `🧾 *POS:* ${getFieldValue(detail.pos, 'pos')}\n`;
-                            text += `🪣 *BKTS:* ${getFieldValue(detail.bucket, 'bucket')}\n`;
-                            text += `🗓️ *Upload Date:* ${getFieldValue(detail.uploadDate ? new Date(detail.uploadDate).toLocaleDateString() : '—', 'uploadDate')}\n`;
-                            
-                            // Confirmed by section
-                            text += `\n*Confirmed By:*\n`;
-                            text += `👤 *1st Name:* ${detail.confirmedBy1stName || 'N/A'}\n`;
-                            text += `📞 *Number:* ${detail.confirmedBy1stNumber || 'N/A'}\n`;
-                            text += `👤 *2nd Name:* ${detail.confirmedBy2ndName || 'N/A'}\n`;
-                            text += `📞 *Number:* ${detail.confirmedBy2ndNumber || 'N/A'}\n`;
                             
                             return text;
                           };
@@ -767,8 +798,8 @@ export default function SearchResultsScreen({ route, navigation }) {
                 ) : (
                   <>
                     {/* Details Section (dynamic by field mapping) */}
-                    <View style={styles.detailsSection}>
-                      <Text style={styles.sectionTitle}>Vehicle Information</Text>
+                    <View style={[styles.detailsSection, { borderBottomColor: theme.surfaceBorder }]}>
+                      <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Vehicle Information</Text>
                       {(() => {
                         const fm = fieldMapping || {};
                         const row = (label, value, key, icon='•') => {
@@ -776,13 +807,10 @@ export default function SearchResultsScreen({ route, navigation }) {
                           // Show field with N/A if disabled, don't hide completely
                           const displayValue = shouldHide ? 'N/A' : (value ?? '—');
                           return (
-                            <View key={label} style={styles.detailRow}>
-                              <View style={styles.detailIcon}><Text style={styles.detailIconText}>{icon}</Text></View>
-                        <View style={styles.detailContent}>
-                                <Text style={styles.detailLabel}>{label}</Text>
-                                <Text style={styles.detailValue}>{displayValue}</Text>
-                        </View>
-                      </View>
+                            <View key={label} style={styles.compactDetailRow}>
+                              <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>{label}:</Text>
+                              <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{displayValue}</Text>
+                            </View>
                           );
                         };
                         return [
@@ -811,27 +839,17 @@ export default function SearchResultsScreen({ route, navigation }) {
                     </View>
 
                     {/* Customer Section */}
-                    <View style={styles.detailsSection}>
-                      <Text style={styles.sectionTitle}>Customer Information</Text>
+                    <View style={[styles.detailsSection, { borderBottomColor: theme.surfaceBorder }]}>
+                      <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Customer Information</Text>
                       
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>👤</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Customer Name</Text>
-                          <Text style={styles.detailValue}>{detail.customerName || '—'}</Text>
-                        </View>
+                      <View style={styles.compactDetailRow}>
+                        <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Customer Name:</Text>
+                        <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{detail.customerName || '—'}</Text>
                       </View>
 
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailIcon}>
-                          <Text style={styles.detailIconText}>📍</Text>
-                        </View>
-                        <View style={styles.detailContent}>
-                          <Text style={styles.detailLabel}>Address</Text>
-                          <Text style={styles.detailValue}>{detail.address || '—'}</Text>
-                        </View>
+                      <View style={styles.compactDetailRow}>
+                        <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Address:</Text>
+                        <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{detail.address || '—'}</Text>
                       </View>
                     </View>
 
@@ -855,7 +873,7 @@ export default function SearchResultsScreen({ route, navigation }) {
                       
                       <TouchableOpacity style={styles.whatsBtn} onPress={async () => {
                         try {
-                          const text = `🚗 *Vehicle Details*\n\n🔢 *Registration:* ${detail.regNo}\n🔧 *Chassis:* ${detail.chassisNo}\n📄 *Loan:* ${detail.loanNo}\n🏦 *Bank:* ${detail.bank}\n👤 *Customer:* ${detail.customerName}\n📍 *Address:* ${detail.address}`;
+                          const text = `🚗 *Vehicle Details*\n\n👤 *Name:* ${detail.customerName || '—'}\n🔢 *Vehicle:* ${detail.regNo || '—'}\n🔧 *Chassis:* ${detail.chassisNo || '—'}\n⚙️ *Engine:* ${detail.engineNo || '—'}\n🏭 *Make:* ${detail.make || '—'}\n🚘 *Model:* ${detail.model || '—'}`;
                           const token = await SecureStore.getItemAsync('token');
                           // Fire-and-forget share history
                           axios.post(`${getBaseURL()}/api/history/share`, {
@@ -921,6 +939,9 @@ const styles = StyleSheet.create({
   ,detailContent: { flex: 1 }
   ,detailLabel: { fontSize: 12, color: '#666', fontWeight: '600', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }
   ,detailValue: { fontSize: 16, color: '#111', fontWeight: '600', lineHeight: 22 }
+  ,compactDetailRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6, paddingVertical: 2 }
+  ,compactDetailLabel: { fontSize: 13, fontWeight: '600', marginRight: 8, minWidth: 100, textTransform: 'uppercase', letterSpacing: 0.3 }
+  ,compactDetailValue: { fontSize: 14, fontWeight: '500', flex: 1 }
   ,actionSection: { padding: 20, gap: 12 }
   ,primaryBtn: { backgroundColor: '#222636', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 15, alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 }
   ,primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 }
@@ -936,6 +957,21 @@ const styles = StyleSheet.create({
   ,segTextActive: { color: '#fff' }
   ,whatsappIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#25D366', alignItems: 'center', justifyContent: 'center', marginLeft: 10 }
   ,whatsappIconText: { fontSize: 16, color: '#fff' }
+  // Loading skeleton styles
+  ,loadingSkeleton: { flex: 1, paddingVertical: 8 }
+  ,skeletonItem: { 
+    paddingVertical: 12, 
+    paddingHorizontal: 16, 
+    borderWidth: 1, 
+    borderRadius: 8, 
+    marginBottom: 8,
+    backgroundColor: '#fff'
+  }
+  ,skeletonLine: { 
+    height: 16, 
+    borderRadius: 4, 
+    width: '70%' 
+  }
 });
 
 

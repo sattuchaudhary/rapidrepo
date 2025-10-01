@@ -2,7 +2,7 @@
   "expo": {
     "name": "Rapid Repo",
     "slug": "rapid-repo",
-    "version": "1.0.2",
+    "version": "1.0.4",
     "sdkVersion": "54.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
@@ -12,7 +12,7 @@
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0,
-      "url": "https://u.expo.dev/45a8d92d-3c91-454a-97a5-0f1da1140815"
+      "url": "https://u.expo.dev/e830db89-f4a2-47b6-a103-a23257f8fded"
     },
     "runtimeVersion": "1.0.2",
     "splash": {
@@ -27,13 +27,14 @@
     "android": {
       "package": "com.rapidbuddy.rapidrepo",
       "versionCode": 2,
+      "icon": "./assets/icon.png",
       "splash": {
         "image": "./assets/logo.png",
         "resizeMode": "contain",
         "backgroundColor": "#10121A"
       },
       "adaptiveIcon": {
-        "foregroundImage": "./assets/logo.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#10121A"
       },
       "edgeToEdgeEnabled": true,
@@ -53,9 +54,10 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "45a8d92d-3c91-454a-97a5-0f1da1140815"
+        "projectId": "e830db89-f4a2-47b6-a103-a23257f8fded"
       },
       "apiUrl": "https://api.rapidbuddy.cloud"
-    }
+    },
+    "owner": "rapidrepo"
   }
 }

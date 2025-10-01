@@ -104,6 +104,22 @@ export const initDatabase = async () => {
     await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_regsuffix ON vehicles (regSuffix)');
     await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_vehicles_chassislc ON vehicles (chassisLc)');
     console.log('✅ Indexes created/verified');
+    // Track per-file sync progress/parity versus server
+    await executeSql(db, `CREATE TABLE IF NOT EXISTS file_sync (
+      fileName TEXT PRIMARY KEY,
+      vehicleType TEXT,
+      bankName TEXT,
+      total INTEGER DEFAULT 0,
+      downloaded INTEGER DEFAULT 0,
+      completed INTEGER DEFAULT 0,
+      lastOffset INTEGER DEFAULT 0,
+      serverUploadDate TEXT,
+      localDownloadDate TEXT,
+      updatedAt TEXT
+    )`);
+    await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_file_sync_completed ON file_sync (completed)');
+    await executeSql(db, 'CREATE INDEX IF NOT EXISTS idx_file_sync_upload_date ON file_sync (serverUploadDate)');
+    console.log('✅ File sync metadata table created/verified');
     // Aux table to mark seen ids per sync to support deletion of stale rows
     await executeSql(db, `CREATE TABLE IF NOT EXISTS sync_seen (
       _id TEXT PRIMARY KEY
@@ -143,6 +159,62 @@ export const countVehicles = async () => {
     console.error('Error counting vehicles:', error.message);
     return 0;
   }
+};
+
+// ---- Per-file sync metadata helpers ----
+export const upsertFileMeta = async (fileName, data) => {
+  if (!fileName) return null;
+  const db = getDatabase();
+  const nowIso = new Date().toISOString();
+  const safe = (v) => (v === undefined || v === null ? null : v);
+  await executeSql(db, `INSERT OR REPLACE INTO file_sync
+    (fileName, vehicleType, bankName, total, downloaded, completed, lastOffset, serverUploadDate, localDownloadDate, updatedAt)
+    VALUES (
+      ?,
+      COALESCE((SELECT vehicleType FROM file_sync WHERE fileName = ?), ?),
+      COALESCE((SELECT bankName FROM file_sync WHERE fileName = ?), ?),
+      COALESCE(?, COALESCE((SELECT total FROM file_sync WHERE fileName = ?), 0)),
+      COALESCE(?, COALESCE((SELECT downloaded FROM file_sync WHERE fileName = ?), 0)),
+      COALESCE(?, COALESCE((SELECT completed FROM file_sync WHERE fileName = ?), 0)),
+      COALESCE(?, COALESCE((SELECT lastOffset FROM file_sync WHERE fileName = ?), 0)),
+      COALESCE(?, (SELECT serverUploadDate FROM file_sync WHERE fileName = ?)),
+      COALESCE(?, (SELECT localDownloadDate FROM file_sync WHERE fileName = ?)),
+      ?
+    )
+  `, [
+    String(fileName),
+    String(fileName), safe(data.vehicleType),
+    String(fileName), safe(data.bankName),
+    safe(data.total), String(fileName),
+    safe(data.downloaded), String(fileName),
+    safe(data.completed ? 1 : data.completed === 0 ? 0 : null), String(fileName),
+    safe(data.lastOffset), String(fileName),
+    safe(data.serverUploadDate), String(fileName),
+    safe(data.localDownloadDate), String(fileName),
+    nowIso
+  ]);
+  const res = await executeSql(db, 'SELECT * FROM file_sync WHERE fileName = ?', [String(fileName)]);
+  return res?.rows?._array?.[0] || null;
+};
+
+export const getFileMeta = async (fileName) => {
+  if (!fileName) return null;
+  const db = getDatabase();
+  const res = await executeSql(db, 'SELECT * FROM file_sync WHERE fileName = ?', [String(fileName)]);
+  return res?.rows?._array?.[0] || null;
+};
+
+export const listFileMeta = async () => {
+  const db = getDatabase();
+  const res = await executeSql(db, 'SELECT * FROM file_sync ORDER BY serverUploadDate DESC NULLS LAST, updatedAt DESC', []);
+  return res?.rows?._array || [];
+};
+
+export const markFileCompleted = async (fileName) => {
+  if (!fileName) return;
+  const db = getDatabase();
+  const nowIso = new Date().toISOString();
+  await executeSql(db, 'UPDATE file_sync SET completed = 1, localDownloadDate = ?, updatedAt = ?, downloaded = total WHERE fileName = ?', [nowIso, nowIso, String(fileName)]);
 };
 
 // DEBUG: quick stats to validate searchable fields are populated

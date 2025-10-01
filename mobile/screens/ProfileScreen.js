@@ -321,6 +321,15 @@ export default function ProfileScreen({ navigation }) {
             <Text style={styles.actionChevron}>›</Text>
           </TouchableOpacity>
 
+          <TouchableOpacity style={styles.actionButton} activeOpacity={0.8} onPress={() => navigation.navigate('Settings')}>
+            <Text style={styles.actionIcon}>⚙️</Text>
+            <View style={styles.actionContent}>
+              <Text style={styles.actionTitle}>Sync Settings</Text>
+              <Text style={styles.actionSubtitle}>Manage background sync</Text>
+            </View>
+            <Text style={styles.actionChevron}>›</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.actionButton} activeOpacity={0.8} onPress={handleContactSupport}>
             <Text style={styles.actionIcon}>📞</Text>
             <View style={styles.actionContent}>
