@@ -176,16 +176,30 @@ const MobileUpload = () => {
     }
   };
 
-  const handleFileSelect = (event) => {
+  const handleFileSelect = async (event) => {
+    // Prevent file selection during loading operations
+    if (isLoadingPreview || isLoadingUpload || isUploading) {
+      toast.warning('Please wait for current operation to complete');
+      event.target.value = '';
+      return;
+    }
+    
+    // Prevent file selection when a file is already loaded but not uploaded
+    if (file && previewData.length > 0) {
+      toast.warning('Please upload the current file first before selecting a new one');
+      event.target.value = '';
+      return;
+    }
+    
     const selectedFile = event.target.files[0];
     if (selectedFile) {
-      processFile(selectedFile);
+      await processFile(selectedFile);
     }
     // Reset the input value to allow selecting the same file again
     event.target.value = '';
   };
 
-  const processFile = (selectedFile) => {
+  const processFile = async (selectedFile) => {
     // Clear previous file data to fix the issue where previous file data loads
     setFile(null);
     setHeaders([]);
@@ -215,6 +229,65 @@ const MobileUpload = () => {
     setFile(selectedFile);
     setActiveStep(1);
     toast.success('File selected successfully');
+    
+    // Auto-load the file after selection
+    await autoLoadFile(selectedFile);
+  };
+
+  const autoLoadFile = async (selectedFile) => {
+    try {
+      setIsLoadingPreview(true);
+      setCurrentAction('Auto-loading file...');
+      
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('preview', 'true');
+      
+      // Use the same mapping logic as upload for consistency
+      const stdToFileFromColumns = {};
+      Object.entries(columnMapping).forEach(([fileCol, std]) => { 
+        if (std && std.trim() !== '') {
+          stdToFileFromColumns[std] = fileCol; 
+        }
+      });
+      
+      const finalMapping = Object.keys(stdToFileFromColumns).length > 0 ? stdToFileFromColumns : headerMapping;
+      if (Object.keys(finalMapping).length > 0) {
+        formData.append('mapping', JSON.stringify(finalMapping));
+        console.log('Auto-load using field mapping:', finalMapping);
+      }
+
+      const token = localStorage.getItem('token');
+      const response = await axios.post('http://localhost:5000/api/tenant/mobile/preview', formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      if (response.data.success) {
+        setPreviewData(response.data.data);
+        setHeaders(response.data.headers || []);
+        setRawRows(response.data.rawRows || []);
+        setShowPreview(false);
+        toast.success('File loaded automatically');
+        
+        // Initialize column mapping from existing std->file mapping if present
+        if (Object.keys(headerMapping).length > 0 && (response.data.headers || []).length) {
+          const inverted = {};
+          Object.entries(headerMapping).forEach(([std, fileCol]) => { inverted[fileCol] = std; });
+          setColumnMapping(inverted);
+        } else {
+          setColumnMapping({});
+        }
+      }
+    } catch (error) {
+      console.error('Auto-load error:', error);
+      toast.error(error.response?.data?.message || 'Failed to auto-load file');
+    } finally {
+      setIsLoadingPreview(false);
+      setCurrentAction('');
+    }
   };
 
   const handleDragOver = (event) => {
@@ -227,13 +300,25 @@ const MobileUpload = () => {
     setIsDragOver(false);
   };
 
-  const handleDrop = (event) => {
+  const handleDrop = async (event) => {
     event.preventDefault();
     setIsDragOver(false);
     
+    // Prevent file drop during loading operations
+    if (isLoadingPreview || isLoadingUpload || isUploading) {
+      toast.warning('Please wait for current operation to complete');
+      return;
+    }
+    
+    // Prevent file drop when a file is already loaded but not uploaded
+    if (file && previewData.length > 0) {
+      toast.warning('Please upload the current file first before selecting a new one');
+      return;
+    }
+    
     const files = event.dataTransfer.files;
     if (files.length > 0) {
-      processFile(files[0]);
+      await processFile(files[0]);
     }
   };
 
@@ -312,6 +397,14 @@ const MobileUpload = () => {
         setActiveStep(2);
         toast.success(`Successfully uploaded ${response.data.inserted} records`);
         fetchUploadHistory();
+        
+        // Clear file state after successful upload to allow new file selection
+        setFile(null);
+        setPreviewData([]);
+        setHeaders([]);
+        setRawRows([]);
+        setColumnMapping({});
+        setHeaderMapping({});
       } else {
         throw new Error(response.data.message || 'Upload failed');
       }
@@ -324,63 +417,6 @@ const MobileUpload = () => {
     } finally {
       setIsUploading(false);
       setIsLoadingUpload(false);
-      setCurrentAction('');
-    }
-  };
-
-  const handlePreview = async () => {
-    if (!file) return;
-
-    try {
-      setIsLoadingPreview(true);
-      setCurrentAction('Loading file preview...');
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('preview', 'true');
-      
-      // Use the same mapping logic as upload for consistency
-      const stdToFileFromColumns = {};
-      Object.entries(columnMapping).forEach(([fileCol, std]) => { 
-        if (std && std.trim() !== '') {
-          stdToFileFromColumns[std] = fileCol; 
-        }
-      });
-      
-      const finalMapping = Object.keys(stdToFileFromColumns).length > 0 ? stdToFileFromColumns : headerMapping;
-      if (Object.keys(finalMapping).length > 0) {
-        formData.append('mapping', JSON.stringify(finalMapping));
-        console.log('Preview using field mapping:', finalMapping);
-      }
-
-      const token = localStorage.getItem('token');
-      const response = await axios.post('http://localhost:5000/api/tenant/mobile/preview', formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-
-      if (response.data.success) {
-        setPreviewData(response.data.data);
-        setHeaders(response.data.headers || []);
-        setRawRows(response.data.rawRows || []);
-        // Inline grid UX: keep dialog closed; show table below instead
-        setShowPreview(false);
-        toast.success('File loaded');
-        // Initialize column mapping from existing std->file mapping if present
-        if (Object.keys(headerMapping).length > 0 && (response.data.headers || []).length) {
-          const inverted = {};
-          Object.entries(headerMapping).forEach(([std, fileCol]) => { inverted[fileCol] = std; });
-          setColumnMapping(inverted);
-        } else {
-          setColumnMapping({});
-        }
-      }
-    } catch (error) {
-      console.error('Preview error:', error);
-      toast.error('Failed to preview data');
-    } finally {
-      setIsLoadingPreview(false);
       setCurrentAction('');
     }
   };
@@ -598,17 +634,17 @@ const MobileUpload = () => {
                       variant="contained"
                       component="label"
                           size="small"
-                      startIcon={<UploadIcon />}
-                      disabled={isLoadingPreview || isLoadingUpload || isUploading}
+                      startIcon={isLoadingPreview ? <RefreshIcon sx={{ animation: 'spin 1s linear infinite' }} /> : <UploadIcon />}
+                      disabled={isLoadingPreview || isLoadingUpload || isUploading || (file && previewData.length > 0)}
                     >
-              Choose File
+              {isLoadingPreview ? 'Loading File...' : (file && previewData.length > 0) ? 'File Loaded - Upload to Select New' : 'Choose File'}
                       <input
                         id="file-input"
                         hidden
                         type="file"
                         accept=".xlsx,.xls,.csv"
                         onChange={handleFileSelect}
-                        disabled={isLoadingPreview || isLoadingUpload || isUploading}
+                        disabled={isLoadingPreview || isLoadingUpload || isUploading || (file && previewData.length > 0)}
                       />
                     </Button>
                         <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
@@ -619,15 +655,32 @@ const MobileUpload = () => {
                         </Typography>
                   {file && (
                           <>
-                            <Button 
-                              variant="contained" 
-                              size="small" 
-                              onClick={handlePreview}
-                              disabled={isLoadingPreview || isLoadingUpload || isUploading}
-                              startIcon={isLoadingPreview ? <RefreshIcon sx={{ animation: 'spin 1s linear infinite' }} /> : <ViewIcon />}
-                            >
-                              {isLoadingPreview ? 'Loading...' : 'Load File'}
-                            </Button>
+                            {isLoadingPreview && (
+                              <Typography variant="body2" color="primary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <RefreshIcon sx={{ animation: 'spin 1s linear infinite', fontSize: 16 }} />
+                                Auto-loading file...
+                              </Typography>
+                            )}
+                            {file && previewData.length > 0 && !isLoadingPreview && (
+                              <Button 
+                                variant="outlined" 
+                                size="small" 
+                                onClick={() => {
+                                  setFile(null);
+                                  setPreviewData([]);
+                                  setHeaders([]);
+                                  setRawRows([]);
+                                  setColumnMapping({});
+                                  setHeaderMapping({});
+                                  toast.success('File cleared. You can now select a new file.');
+                                }}
+                                disabled={isLoadingUpload || isUploading}
+                                startIcon={<DeleteIcon />}
+                                color="warning"
+                              >
+                                Clear File
+                              </Button>
+                            )}
                             <Button 
                               variant="contained" 
                               size="small" 
@@ -644,7 +697,7 @@ const MobileUpload = () => {
                       <Typography variant="body2" color="text.secondary">Select vehicle type and bank first</Typography>
                     )}
                   </Box>
-                  <Typography variant="caption" color="text.secondary">Step: 1 Select • 2 Load • 3 Map • 4 Upload</Typography>
+                  <Typography variant="caption" color="text.secondary">Step: 1 Select • 2 Auto-Load • 3 Map • 4 Upload</Typography>
                 </Box>
               )}
 
