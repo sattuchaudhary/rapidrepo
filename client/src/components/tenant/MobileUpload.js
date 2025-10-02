@@ -110,9 +110,22 @@ const MobileUpload = () => {
 
   const hasMappedFields = React.useMemo(() => {
     if (!headers.length) return false;
-    // Allow upload when at least one column is mapped
-    return headers.some(h => !!columnMapping[h]);
+    // Check if registration number is mapped (mandatory)
+    const hasRegistrationNumber = Object.values(columnMapping).includes('registrationNumber');
+    // Allow upload when at least one column is mapped AND registration number is mapped
+    return headers.some(h => !!columnMapping[h]) && hasRegistrationNumber;
   }, [columnMapping, headers]);
+
+  // Get available options for each column dropdown (excluding already selected options)
+  const getAvailableOptions = React.useMemo(() => {
+    return (currentColumn) => {
+      const selectedValues = Object.entries(columnMapping)
+        .filter(([col, value]) => col !== currentColumn && value && value.trim() !== '')
+        .map(([col, value]) => value);
+      
+      return ['', ...standardFields.filter(field => !selectedValues.includes(field))];
+    };
+  }, [columnMapping, standardFields]);
 
   // Load banks on component mount
   useEffect(() => {
@@ -227,6 +240,13 @@ const MobileUpload = () => {
   const handleUpload = async () => {
     if (!vehicleType || !file || !selectedBank) {
       toast.error('Please select vehicle type, bank and file');
+      return;
+    }
+
+    // Check if registration number is mapped (mandatory)
+    const hasRegistrationNumber = Object.values(columnMapping).includes('registrationNumber');
+    if (!hasRegistrationNumber) {
+      toast.error('Registration Number mapping is mandatory. Please map a column to Registration Number.');
       return;
     }
 
@@ -478,6 +498,7 @@ const MobileUpload = () => {
                           value={vehicleType}
                           onChange={(e) => setVehicleType(e.target.value)}
                           label="Vehicle Type *"
+                          disabled={isLoadingPreview || isLoadingUpload || isUploading}
                         >
                           <MenuItem value="TwoWheeler">
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -508,7 +529,7 @@ const MobileUpload = () => {
                           value={selectedBank}
                           onChange={(e) => setSelectedBank(e.target.value)}
                           label="Select Bank *"
-                          disabled={banks.length === 0 || isLoadingBanks}
+                          disabled={banks.length === 0 || isLoadingBanks || isLoadingPreview || isLoadingUpload || isUploading}
                         >
                           {isLoadingBanks ? (
                             <MenuItem disabled>
@@ -543,11 +564,11 @@ const MobileUpload = () => {
                     <Button
                       variant="contained"
                       onClick={() => setActiveStep(1)}
-                      disabled={!vehicleType || !selectedBank}
+                      disabled={!vehicleType || !selectedBank || isLoadingPreview || isLoadingUpload || isUploading}
                       sx={{ 
-                        bgcolor: (!vehicleType || !selectedBank) ? 'grey.300' : 'primary.main',
+                        bgcolor: (!vehicleType || !selectedBank || isLoadingPreview || isLoadingUpload || isUploading) ? 'grey.300' : 'primary.main',
                         '&:hover': {
-                          bgcolor: (!vehicleType || !selectedBank) ? 'grey.300' : 'primary.dark'
+                          bgcolor: (!vehicleType || !selectedBank || isLoadingPreview || isLoadingUpload || isUploading) ? 'grey.300' : 'primary.dark'
                         }
                       }}
                     >
@@ -556,7 +577,7 @@ const MobileUpload = () => {
                     <Button
                       variant="outlined"
                       onClick={() => downloadTemplate(vehicleType)}
-                      disabled={!vehicleType}
+                      disabled={!vehicleType || isLoadingPreview || isLoadingUpload || isUploading}
                       startIcon={<DownloadTemplateIcon />}
                     >
                       Download Template
@@ -578,6 +599,7 @@ const MobileUpload = () => {
                       component="label"
                           size="small"
                       startIcon={<UploadIcon />}
+                      disabled={isLoadingPreview || isLoadingUpload || isUploading}
                     >
               Choose File
                       <input
@@ -586,10 +608,14 @@ const MobileUpload = () => {
                         type="file"
                         accept=".xlsx,.xls,.csv"
                         onChange={handleFileSelect}
+                        disabled={isLoadingPreview || isLoadingUpload || isUploading}
                       />
                     </Button>
                         <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
-                          {file ? `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)` : 'Supported: .xlsx .xls .csv'}
+                          {(isLoadingPreview || isLoadingUpload || isUploading) ? 
+                            'File operations in progress...' : 
+                            (file ? `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)` : 'Supported: .xlsx .xls .csv')
+                          }
                         </Typography>
                   {file && (
                           <>
@@ -597,7 +623,7 @@ const MobileUpload = () => {
                               variant="contained" 
                               size="small" 
                               onClick={handlePreview}
-                              disabled={isLoadingPreview}
+                              disabled={isLoadingPreview || isLoadingUpload || isUploading}
                               startIcon={isLoadingPreview ? <RefreshIcon sx={{ animation: 'spin 1s linear infinite' }} /> : <ViewIcon />}
                             >
                               {isLoadingPreview ? 'Loading...' : 'Load File'}
@@ -606,7 +632,7 @@ const MobileUpload = () => {
                               variant="contained" 
                               size="small" 
                               onClick={handleUpload} 
-                              disabled={isUploading || !hasMappedFields || isLoadingUpload}
+                              disabled={isUploading || !hasMappedFields || isLoadingUpload || isLoadingPreview}
                               startIcon={isLoadingUpload ? <RefreshIcon sx={{ animation: 'spin 1s linear infinite' }} /> : <UploadIcon />}
                             >
                               {isLoadingUpload ? 'Uploading...' : 'Upload File'}
@@ -763,8 +789,19 @@ const MobileUpload = () => {
               </Grid>
             </Grid>
             {!hasMappedFields && (
-              <Alert severity="warning" sx={{ mt: 2 }}>
-                Please map at least one column to proceed with upload.
+              <Alert severity="error" sx={{ mt: 2 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Upload Requirements:
+                </Typography>
+                <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                  <li>Registration Number mapping is mandatory</li>
+                  <li>At least one column must be mapped</li>
+                </ul>
+              </Alert>
+            )}
+            {Object.values(columnMapping).includes('registrationNumber') && (
+              <Alert severity="success" sx={{ mt: 2 }}>
+                ✓ Registration Number is mapped - ready to upload!
               </Alert>
             )}
           </Paper>
@@ -777,20 +814,26 @@ const MobileUpload = () => {
                     {headers.map(h => (
                       <TableCell key={h}>
                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                          <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                          <Typography variant="caption" sx={{ 
+                            fontWeight: 'bold',
+                            color: columnMapping[h] === 'registrationNumber' ? 'error.main' : 'inherit'
+                          }}>
                             {h}
+                            {columnMapping[h] === 'registrationNumber' && ' 🔴 (REG NO)'}
                           </Typography>
                           <Autocomplete
                             size="small"
-                            options={['', ...standardFields]} // Include empty option to allow unmapping
+                            options={getAvailableOptions(h)} // Use filtered options to prevent duplicates
                             value={columnMapping[h] || ''}
                             onChange={(e, val) => setColumnMapping({ ...columnMapping, [h]: val || '' })}
+                            disabled={isLoadingUpload || isUploading}
                             renderInput={(params) => (
                               <TextField 
                                 {...params} 
                                 label={columnMapping[h] ? "Mapped to" : "Not mapped"} 
                                 variant="outlined"
                                 color={columnMapping[h] ? "success" : "warning"}
+                                disabled={isLoadingUpload || isUploading}
                               />
                             )}
                             renderOption={(props, option) => (
@@ -801,7 +844,13 @@ const MobileUpload = () => {
                                   </Typography>
                                 ) : (
                                   <Box>
-                                    <Typography variant="body2">{option}</Typography>
+                                    <Typography variant="body2" sx={{ 
+                                      fontWeight: option === 'registrationNumber' ? 'bold' : 'normal',
+                                      color: option === 'registrationNumber' ? 'error.main' : 'inherit'
+                                    }}>
+                                      {option === 'registrationNumber' && '⚠️ '}{option}
+                                      {option === 'registrationNumber' && ' (MANDATORY)'}
+                                    </Typography>
                                     {(option === 'registrationNumber' || option.includes('Phone') || option === 'engineNumber' || option === 'chassisNumber') && (
                                       <Typography variant="caption" color="info.main" sx={{ fontSize: '0.65rem', display: 'block' }}>
                                         ✨ Auto-formatted (removes spaces/hyphens)
