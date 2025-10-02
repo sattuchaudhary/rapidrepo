@@ -77,7 +77,7 @@ export default function SearchResultsScreen({ route, navigation }) {
   
   // Animation values for smooth transitions
   const fadeAnim = useState(new Animated.Value(0))[0];
-  const slideAnim = useState(new Animated.Value(20))[0];
+  const slideAnim = useState(new Animated.Value(50))[0];
 
   // Helper: log search click to server with robust error reporting
   const logSearchClick = useCallback(async (vehicle, queryText) => {
@@ -135,6 +135,30 @@ export default function SearchResultsScreen({ route, navigation }) {
       setColorScheme(newColorScheme);
     });
     return () => subscription?.remove();
+  }, []);
+
+  // Screen entrance animation
+  useEffect(() => {
+    // Start entrance animation when component mounts
+    fadeAnim.setValue(0);
+    slideAnim.setValue(50);
+    
+    const timer = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 50); // Small delay to ensure smooth transition
+    
+    return () => clearTimeout(timer);
   }, []);
 
   // Load logged-in agent and field mapping in parallel - Optimized for faster loading
@@ -428,9 +452,21 @@ export default function SearchResultsScreen({ route, navigation }) {
       setLoading(false);
       setError('');
       
-      // INSTANT animation - no delays
-      fadeAnim.setValue(1);
-      slideAnim.setValue(0);
+      // Smooth entrance animation from right
+      fadeAnim.setValue(0);
+      slideAnim.setValue(50);
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
       
       // Clear header inputs immediately
       setRegSuffixInput('');
@@ -559,27 +595,36 @@ export default function SearchResultsScreen({ route, navigation }) {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg } ] }>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.bg} />
-      <View style={styles.headerBar}>
-        <TextInput
-          ref={chassisInputRef}
-          style={[styles.input, { flex: 0.5, backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.inputBorder }]}
-          value={chassisInput}
-          onChangeText={(t)=>setChassisInput(String(t || '').toUpperCase())}
-          placeholder="Chassis number"
-          autoCapitalize="characters"
-          blurOnSubmit={false}
-        />
-        <TextInput
-          ref={regSuffixInputRef}
-          style={[styles.input, { flex: 0.5, backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.inputBorder }]}
-          value={regSuffixInput}
-          onChangeText={(t)=>setRegSuffixInput(String(t||'').replace(/\D/g,'').slice(0,4))}
-          placeholder="Reg tail (1234)"
-          keyboardType="numeric"
-          maxLength={4}
-          blurOnSubmit={false}
-        />
-      </View>
+      <Animated.View 
+        style={[
+          { flex: 1 },
+          {
+            opacity: fadeAnim,
+            transform: [{ translateX: slideAnim }]
+          }
+        ]}
+      >
+        <View style={styles.headerBar}>
+          <TextInput
+            ref={chassisInputRef}
+            style={[styles.input, { flex: 0.5, backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.inputBorder }]}
+            value={chassisInput}
+            onChangeText={(t)=>setChassisInput(String(t || '').toUpperCase())}
+            placeholder="Chassis number"
+            autoCapitalize="characters"
+            blurOnSubmit={false}
+          />
+          <TextInput
+            ref={regSuffixInputRef}
+            style={[styles.input, { flex: 0.5, backgroundColor: theme.inputBg, color: theme.textPrimary, borderColor: theme.inputBorder }]}
+            value={regSuffixInput}
+            onChangeText={(t)=>setRegSuffixInput(String(t||'').replace(/\D/g,'').slice(0,4))}
+            placeholder="Reg tail (1234)"
+            keyboardType="numeric"
+            maxLength={4}
+            blurOnSubmit={false}
+          />
+        </View>
       
 
       {!!error && <Text style={[styles.error, { color: isDark ? '#F87171' : 'red' }]}>{error}</Text>}
@@ -590,7 +635,7 @@ export default function SearchResultsScreen({ route, navigation }) {
       )}
       {/* Non A–Z list removed; always showing A–Z columns */}
       {results.length > 0 && azMode && (
-        <Animated.View style={{ flex: 1, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+        <View style={{ flex: 1 }}>
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: keyboardHeight + 6 }} keyboardShouldPersistTaps="always" keyboardDismissMode="none">
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <View style={{ flex: 1, gap: 8 }}>
@@ -643,7 +688,7 @@ export default function SearchResultsScreen({ route, navigation }) {
             </View>
           </View>
         </ScrollView>
-        </Animated.View>
+        </View>
       )}
 
       <Modal visible={detailOpen} transparent animationType="slide" onRequestClose={() => setDetailOpen(false)}>
@@ -904,6 +949,7 @@ export default function SearchResultsScreen({ route, navigation }) {
           </View>
         </View>
       </Modal>
+      </Animated.View>
     </SafeAreaView>
   );
 }

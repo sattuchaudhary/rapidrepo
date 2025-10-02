@@ -154,8 +154,10 @@ export default function App() {
             component={SearchResultsScreen} 
             options={{ 
               headerShown: false,
-              animation: 'fade',
-              animationDuration: 150
+              animation: 'slide_from_right',
+              animationDuration: 300,
+              gestureEnabled: true,
+              gestureDirection: 'horizontal'
             }} 
           />
           <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />

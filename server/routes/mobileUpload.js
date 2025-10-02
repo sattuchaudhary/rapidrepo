@@ -192,40 +192,115 @@ const validateData = (data, fieldMapping) => {
     if (data[field] && config.type === 'string' && data[field].length > 255) {
       warnings.push(`Field '${field}' is too long (${data[field].length} characters)`);
     }
+
+    // Special validation for registration number
+    if (field === 'registrationNumber' && data[field]) {
+      const regNumber = data[field];
+      // Check if it's a valid format after formatting (should be alphanumeric)
+      if (!/^[A-Z0-9]+$/.test(regNumber)) {
+        warnings.push(`Registration number '${regNumber}' contains invalid characters after formatting`);
+      }
+      // Check reasonable length (typically 8-15 characters for Indian registration numbers)
+      if (regNumber.length < 6 || regNumber.length > 15) {
+        warnings.push(`Registration number '${regNumber}' has unusual length (${regNumber.length} characters)`);
+      }
+    }
   }
 
   return { errors, warnings };
 };
 
+// Format registration number by removing hyphens and spaces
+const formatRegistrationNumber = (regNumber) => {
+  if (!regNumber || typeof regNumber !== 'string') return regNumber;
+  
+  const original = regNumber;
+  // Remove hyphens, spaces, and convert to uppercase
+  const formatted = regNumber.replace(/[-\s]/g, '').toUpperCase();
+  
+  // Log formatting if there was a change
+  if (original !== formatted) {
+    console.log(`Registration number formatted: "${original}" → "${formatted}"`);
+  }
+  
+  return formatted;
+};
+
+// Format phone number by removing spaces, hyphens, and brackets
+const formatPhoneNumber = (phoneNumber) => {
+  if (!phoneNumber || typeof phoneNumber !== 'string') return phoneNumber;
+  
+  const original = phoneNumber;
+  // Remove spaces, hyphens, brackets, and plus signs, keep only digits
+  const formatted = phoneNumber.replace(/[\s\-\(\)\+]/g, '');
+  
+  // Log formatting if there was a change
+  if (original !== formatted && formatted !== '') {
+    console.log(`Phone number formatted: "${original}" → "${formatted}"`);
+  }
+  
+  return formatted;
+};
+
+// Apply field-specific formatting
+const applyFieldFormatting = (field, value) => {
+  if (!value || value === '') return value;
+  
+  switch (field) {
+    case 'registrationNumber':
+      return formatRegistrationNumber(value);
+    case 'firstConfirmerPhone':
+    case 'secondConfirmerPhone':
+    case 'thirdConfirmerPhone':
+      return formatPhoneNumber(value);
+    case 'engineNumber':
+    case 'chassisNumber':
+      // Remove spaces and hyphens from engine/chassis numbers and convert to uppercase
+      return value.replace(/[\s\-]/g, '').toUpperCase();
+    default:
+      return value;
+  }
+};
+
 // Extract data from row using field mapping
 // If providedFieldMap is passed as { standardField: fileColumnName }, it takes precedence.
+// Only extracts data for fields that are explicitly mapped when providedFieldMap is provided
 const extractDataFromRow = (row, headerMap, providedFieldMap) => {
   const extractedData = {};
   
-  for (const [field, config] of Object.entries(FIELD_MAPPING)) {
-    let value = '';
-    
-    // 1) If explicit mapping is provided, use that column
-    if (providedFieldMap && providedFieldMap[field]) {
-      const mappedHeader = providedFieldMap[field];
-      if (mappedHeader && row[mappedHeader] !== undefined && row[mappedHeader] !== null && row[mappedHeader] !== '') {
-        value = String(row[mappedHeader]).trim();
+  // If explicit mapping is provided, ONLY process mapped fields
+  if (providedFieldMap && Object.keys(providedFieldMap).length > 0) {
+    for (const [field, mappedHeader] of Object.entries(providedFieldMap)) {
+      // Only process if this field exists in FIELD_MAPPING and has a valid mapping
+      if (FIELD_MAPPING[field] && mappedHeader && mappedHeader.trim() !== '') {
+        let value = '';
+        if (row[mappedHeader] !== undefined && row[mappedHeader] !== null && row[mappedHeader] !== '') {
+          value = String(row[mappedHeader]).trim();
+          // Apply field-specific formatting
+          value = applyFieldFormatting(field, value);
+        }
+        extractedData[field] = value;
       }
     }
-
-    // 2) Fallback: try aliases
-    if (value === '') {
+  } else {
+    // Fallback: use automatic mapping with aliases (existing behavior)
+    for (const [field, config] of Object.entries(FIELD_MAPPING)) {
+      let value = '';
+      
+      // Try aliases for automatic mapping
       for (const alias of config.aliases) {
         const normalizedAlias = normalizeString(alias);
         const header = headerMap[normalizedAlias];
         if (header && row[header] !== undefined && row[header] !== null && row[header] !== '') {
           value = String(row[header]).trim();
+          // Apply field-specific formatting
+          value = applyFieldFormatting(field, value);
           break;
         }
       }
+      
+      extractedData[field] = value;
     }
-    
-    extractedData[field] = value;
   }
   
   return extractedData;
@@ -337,8 +412,20 @@ router.post('/preview', upload.single('file'), async (req, res) => {
     try {
       if (req.body && req.body.mapping) {
         providedFieldMap = typeof req.body.mapping === 'string' ? JSON.parse(req.body.mapping) : req.body.mapping;
+        console.log('Preview using explicit field mapping:', providedFieldMap);
+        
+        // Log which columns will be ignored in preview
+        const mappedColumns = Object.values(providedFieldMap);
+        const unmappedColumns = headerKeys.filter(header => !mappedColumns.includes(header));
+        if (unmappedColumns.length > 0) {
+          console.log('Preview - Unmapped columns (will be ignored):', unmappedColumns);
+        }
+      } else {
+        console.log('Preview - No explicit mapping provided, using automatic field detection');
       }
-    } catch (_) {}
+    } catch (error) {
+      console.error('Preview - Error parsing field mapping:', error);
+    }
 
     // Process first 10 rows for normalized preview
     const previewData = rows.slice(0, 10).map((row, index) => {
@@ -433,8 +520,20 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     try {
       if (req.body && req.body.mapping) {
         providedFieldMap = typeof req.body.mapping === 'string' ? JSON.parse(req.body.mapping) : req.body.mapping;
+        console.log('Using explicit field mapping:', providedFieldMap);
+        
+        // Log which columns will be ignored
+        const mappedColumns = Object.values(providedFieldMap);
+        const unmappedColumns = headerKeys.filter(header => !mappedColumns.includes(header));
+        if (unmappedColumns.length > 0) {
+          console.log('Unmapped columns (will be ignored):', unmappedColumns);
+        }
+      } else {
+        console.log('No explicit mapping provided, using automatic field detection');
       }
-    } catch (_) {}
+    } catch (error) {
+      console.error('Error parsing field mapping:', error);
+    }
 
     // Process all rows
     const processedData = [];
@@ -507,6 +606,21 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       }
     } catch (_) {}
 
+    // Prepare summary information about mapping
+    let mappingSummary = '';
+    if (providedFieldMap && Object.keys(providedFieldMap).length > 0) {
+      const mappedFields = Object.keys(providedFieldMap);
+      const mappedColumns = Object.values(providedFieldMap);
+      const unmappedColumns = headerKeys.filter(header => !mappedColumns.includes(header));
+      
+      mappingSummary = `Processed ${mappedFields.length} mapped fields. `;
+      if (unmappedColumns.length > 0) {
+        mappingSummary += `${unmappedColumns.length} columns were ignored (not mapped).`;
+      }
+    } else {
+      mappingSummary = 'Used automatic field detection for all columns.';
+    }
+
     res.json({
       success: true,
       message: 'File uploaded successfully',
@@ -515,6 +629,8 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       total: rows.length,
       database: conn.name,
       collection: collectionName,
+      mappingSummary: mappingSummary,
+      processedFields: providedFieldMap ? Object.keys(providedFieldMap) : Object.keys(FIELD_MAPPING),
       errors: allErrors.slice(0, 10), // Return first 10 errors
       warnings: allWarnings.slice(0, 10) // Return first 10 warnings
     });

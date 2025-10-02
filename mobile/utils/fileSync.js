@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { getBaseURL } from './config';
 import { bulkInsertVehicles, upsertFileMeta, getFileMeta, listFileMeta, markFileCompleted } from './db';
 
-// Simple token bucket rate limiter to avoid server overload
+// Enhanced rate limiter with retry logic
 class RateLimiter {
   constructor({ capacity = 2, refillIntervalMs = 1000 }) {
     this.capacity = capacity;
@@ -38,6 +38,31 @@ class RateLimiter {
   }
 }
 
+// Retry helper with exponential backoff
+const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 1000) => {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const isNetworkError = error.code === 'NETWORK_ERROR' || 
+                           error.message?.includes('Network Error') ||
+                           error.message?.includes('timeout') ||
+                           error.response?.status >= 500;
+      
+      if (attempt === maxRetries || !isNetworkError) {
+        throw error;
+      }
+      
+      const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 1000;
+      console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${Math.round(delay)}ms`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
+};
+
 const limiter = new RateLimiter({ capacity: 1, refillIntervalMs: 600 });
 
 export const listAllFiles = async () => {
@@ -55,7 +80,9 @@ export const listAllFiles = async () => {
     let page = 1;
     let pages = 1;
     do {
-      const { data } = await limiter.schedule(() => axios.get(url, { headers, params: { page, limit: 50 }, timeout: 10000 }));
+      const { data } = await limiter.schedule(() => retryWithBackoff(() => 
+        axios.get(url, { headers, params: { page, limit: 50 }, timeout: 15000 })
+      ));
       if (data?.success && Array.isArray(data.data)) {
         for (const row of data.data) {
           const fileName = row.fileName || row._id || '';
@@ -119,11 +146,13 @@ export const downloadNextForFile = async (fileName, options = {}) => {
   const limit = Math.max(1000, Math.min(50000, options.limit || 50000));
   const nextPage = Math.floor(lastOffset / limit) + 1;
   const id = encodeURIComponent(fileName);
-  const { data } = await limiter.schedule(() => axios.get(`${base}/api/tenant/data/file/${id}` , {
-    headers,
-    params: { page: nextPage, limit },
-    timeout: 30000
-  }));
+  const { data } = await limiter.schedule(() => retryWithBackoff(() => 
+    axios.get(`${base}/api/tenant/data/file/${id}`, {
+      headers,
+      params: { page: nextPage, limit },
+      timeout: 45000
+    }), 3, 2000
+  ));
   if (!data?.success) throw new Error(data?.message || 'File page fetch failed');
 
   // Update meta with server-declared total if provided

@@ -108,10 +108,10 @@ const MobileUpload = () => {
     'location','bankName','agreementNumber','customerName','vehicleMake','registrationNumber','engineNumber','chassisNumber','emiAmount','pos','bucketStatus','address','branchName','firstConfirmedName','firstConfirmerPhone','secondConfirmedName','secondConfirmerPhone','thirdConfirmerName','thirdConfirmerPhone','zone','areaOffice','region','allocation','vehicleModel','productName'
   ];
 
-  const allMapped = React.useMemo(() => {
+  const hasMappedFields = React.useMemo(() => {
     if (!headers.length) return false;
-    // Unlock when every visible file column has a mapping selected
-    return headers.every(h => !!columnMapping[h]);
+    // Allow upload when at least one column is mapped
+    return headers.some(h => !!columnMapping[h]);
   }, [columnMapping, headers]);
 
   // Load banks on component mount
@@ -243,11 +243,23 @@ const MobileUpload = () => {
       formData.append('bankName', banks.find(b => String(b._id) === String(selectedBank))?.name || '');
       formData.append('file', file);
       // Convert header dropdown selections to std->file mapping before send
+      // Only include fields that are explicitly mapped (not empty/null)
       const stdToFileFromColumns = {};
-      Object.entries(columnMapping).forEach(([fileCol, std]) => { if (std) stdToFileFromColumns[std] = fileCol; });
-      const finalMapping = Object.keys(stdToFileFromColumns).length ? stdToFileFromColumns : headerMapping;
+      Object.entries(columnMapping).forEach(([fileCol, std]) => { 
+        if (std && std.trim() !== '') {
+          stdToFileFromColumns[std] = fileCol; 
+        }
+      });
+      
+      // Use column mapping if available, otherwise fall back to header mapping
+      const finalMapping = Object.keys(stdToFileFromColumns).length > 0 ? stdToFileFromColumns : headerMapping;
+      
+      // Only send mapping if there are actually mapped fields
       if (Object.keys(finalMapping).length > 0) {
         formData.append('mapping', JSON.stringify(finalMapping));
+        console.log('Sending field mapping:', finalMapping);
+      } else {
+        console.log('No field mapping provided - will use automatic mapping');
       }
 
       const token = localStorage.getItem('token');
@@ -271,6 +283,12 @@ const MobileUpload = () => {
         setErrorCount(response.data.errors?.length || 0);
         setErrors(response.data.errors || []);
         setWarnings(response.data.warnings || []);
+        
+        // Add mapping summary to warnings if available
+        if (response.data.mappingSummary) {
+          setWarnings(prev => [`Mapping Info: ${response.data.mappingSummary}`, ...prev]);
+        }
+        
         setActiveStep(2);
         toast.success(`Successfully uploaded ${response.data.inserted} records`);
         fetchUploadHistory();
@@ -299,8 +317,19 @@ const MobileUpload = () => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('preview', 'true');
-      if (Object.keys(headerMapping).length > 0) {
-        formData.append('mapping', JSON.stringify(headerMapping));
+      
+      // Use the same mapping logic as upload for consistency
+      const stdToFileFromColumns = {};
+      Object.entries(columnMapping).forEach(([fileCol, std]) => { 
+        if (std && std.trim() !== '') {
+          stdToFileFromColumns[std] = fileCol; 
+        }
+      });
+      
+      const finalMapping = Object.keys(stdToFileFromColumns).length > 0 ? stdToFileFromColumns : headerMapping;
+      if (Object.keys(finalMapping).length > 0) {
+        formData.append('mapping', JSON.stringify(finalMapping));
+        console.log('Preview using field mapping:', finalMapping);
       }
 
       const token = localStorage.getItem('token');
@@ -577,7 +606,7 @@ const MobileUpload = () => {
                               variant="contained" 
                               size="small" 
                               onClick={handleUpload} 
-                              disabled={isUploading || !allMapped || isLoadingUpload}
+                              disabled={isUploading || !hasMappedFields || isLoadingUpload}
                               startIcon={isLoadingUpload ? <RefreshIcon sx={{ animation: 'spin 1s linear infinite' }} /> : <UploadIcon />}
                             >
                               {isLoadingUpload ? 'Uploading...' : 'Upload File'}
@@ -696,6 +725,50 @@ const MobileUpload = () => {
       {/* Inline Header mapping + Raw grid */}
       {activeStep === 1 && rawRows.length > 0 && (
         <Box sx={{ mt: 2 }}>
+          {/* Mapping Summary */}
+          <Paper sx={{ p: 2, mb: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              Column Mapping Summary
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={4}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h4" color="success.main">
+                    {Object.values(columnMapping).filter(v => v).length}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Mapped Columns
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h4" color="warning.main">
+                    {headers.length - Object.values(columnMapping).filter(v => v).length}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Unmapped Columns (will be ignored)
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h4" color="primary.main">
+                    {headers.length}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Total Columns
+                  </Typography>
+                </Box>
+              </Grid>
+            </Grid>
+            {!hasMappedFields && (
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                Please map at least one column to proceed with upload.
+              </Alert>
+            )}
+          </Paper>
+          
           <Paper>
             <TableContainer sx={{ maxHeight: 500 }}>
             <Table stickyHeader>
@@ -703,15 +776,54 @@ const MobileUpload = () => {
                   <TableRow>
                     {headers.map(h => (
                       <TableCell key={h}>
-                        <Autocomplete
-                          size="small"
-                          options={standardFields}
-                          value={columnMapping[h] || ''}
-                          onChange={(e, val) => setColumnMapping({ ...columnMapping, [h]: val || '' })}
-                          renderInput={(params) => (
-                            <TextField {...params} label="Map to" variant="outlined" />
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                            {h}
+                          </Typography>
+                          <Autocomplete
+                            size="small"
+                            options={['', ...standardFields]} // Include empty option to allow unmapping
+                            value={columnMapping[h] || ''}
+                            onChange={(e, val) => setColumnMapping({ ...columnMapping, [h]: val || '' })}
+                            renderInput={(params) => (
+                              <TextField 
+                                {...params} 
+                                label={columnMapping[h] ? "Mapped to" : "Not mapped"} 
+                                variant="outlined"
+                                color={columnMapping[h] ? "success" : "warning"}
+                              />
+                            )}
+                            renderOption={(props, option) => (
+                              <li {...props}>
+                                {option === '' ? (
+                                  <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                                    Don't map (ignore column)
+                                  </Typography>
+                                ) : (
+                                  <Box>
+                                    <Typography variant="body2">{option}</Typography>
+                                    {(option === 'registrationNumber' || option.includes('Phone') || option === 'engineNumber' || option === 'chassisNumber') && (
+                                      <Typography variant="caption" color="info.main" sx={{ fontSize: '0.65rem', display: 'block' }}>
+                                        ✨ Auto-formatted (removes spaces/hyphens)
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                )}
+                              </li>
+                            )}
+                          />
+                          {!columnMapping[h] ? (
+                            <Typography variant="caption" color="warning.main" sx={{ fontSize: '0.7rem' }}>
+                              ⚠️ This column will be ignored
+                            </Typography>
+                          ) : (
+                            (columnMapping[h] === 'registrationNumber' || columnMapping[h].includes('Phone') || columnMapping[h] === 'engineNumber' || columnMapping[h] === 'chassisNumber') && (
+                              <Typography variant="caption" color="info.main" sx={{ fontSize: '0.7rem' }}>
+                                ✨ Data will be auto-formatted
+                              </Typography>
+                            )
                           )}
-                        />
+                        </Box>
                       </TableCell>
                     ))}
                   </TableRow>
