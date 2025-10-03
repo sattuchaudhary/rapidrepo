@@ -374,16 +374,20 @@ const createTenantDatabase = async (tenantId, tenantName) => {
     await tenantDb.createCollection('clientmanagement');
     console.log('Client Management collection created');
 
+    // Agency Confirmers collection
+    await tenantDb.createCollection('agencyconfirmers');
+    console.log('Agency Confirmers collection created');
+
     console.log(`✅ Created complete database structure for tenant: ${tenantName}`);
     console.log(`📁 Database: ${tenantDbName}`);
-    console.log(`📂 Collections: users, logs, vehicle, two_vehicle, four_vehicle, cv_vehicle, clientmanagement`);
+    console.log(`📂 Collections: users, logs, vehicle, two_vehicle, four_vehicle, cv_vehicle, clientmanagement, agencyconfirmers`);
     
     // Store tenant database info in main database for reference
     const tenantInfo = {
       tenantId: tenantId,
       tenantName: tenantName,
       databaseName: tenantDbName,
-      collections: ['users', 'logs', 'vehicle', 'two_vehicle', 'four_vehicle', 'cv_vehicle', 'clientmanagement'],
+      collections: ['users', 'logs', 'vehicle', 'two_vehicle', 'four_vehicle', 'cv_vehicle', 'clientmanagement', 'agencyconfirmers'],
       createdAt: new Date()
     };
     

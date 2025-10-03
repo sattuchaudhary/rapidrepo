@@ -377,6 +377,13 @@ router.get('/vehicle/:id', authenticateUnifiedToken, async (req, res) => {
             yardName: doc.yardName || doc.yard || '',
             yardLocation: doc.yardLocation || doc.yardAddress || '',
             fileName: doc.fileName || '',
+            // Confirmer details
+            firstConfirmerName: doc.firstConfirmerName || '',
+            firstConfirmerPhone: doc.firstConfirmerPhone || '',
+            secondConfirmerName: doc.secondConfirmerName || '',
+            secondConfirmerPhone: doc.secondConfirmerPhone || '',
+            thirdConfirmerName: doc.thirdConfirmerName || '',
+            thirdConfirmerPhone: doc.thirdConfirmerPhone || '',
             raw: doc
           }});
         }

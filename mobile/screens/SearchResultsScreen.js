@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { StyleSheet, View, Text, FlatList, ActivityIndicator, Modal, TouchableOpacity, TextInput, StatusBar, ScrollView, InteractionManager, useColorScheme, Animated, Appearance, Keyboard } from 'react-native';
+import { StyleSheet, View, Text, FlatList, ActivityIndicator, Modal, TouchableOpacity, TextInput, StatusBar, ScrollView, InteractionManager, useColorScheme, Animated, Appearance, Keyboard, Linking, Alert } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
@@ -59,7 +59,10 @@ export default function SearchResultsScreen({ route, navigation }) {
   const [suppressClearOnce, setSuppressClearOnce] = useState(false);
   const [agent, setAgent] = useState(null);
   const [fieldMapping, setFieldMapping] = useState(null);
+  const [agencyConfirmers, setAgencyConfirmers] = useState([]);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [whatsappType, setWhatsappType] = useState('normal'); // 'normal' or 'business'
+  const [showWhatsappTypeModal, setShowWhatsappTypeModal] = useState(false);
   const chassisInputRef = useRef(null);
   const regSuffixInputRef = useRef(null);
   
@@ -237,6 +240,77 @@ export default function SearchResultsScreen({ route, navigation }) {
       return false;
     }
   }, [agent]);
+
+  // Helper: fetch agency confirmer data for repo agents
+  const fetchAgencyConfirmers = useCallback(async () => {
+    try {
+      if (!isRepoAgent) return;
+      
+      const token = await SecureStore.getItemAsync('token');
+      if (!token) return;
+      
+      const res = await axios.get(`${getBaseURL()}/api/tenant/agency-confirmers/mobile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (res.data?.success) {
+        setAgencyConfirmers(res.data.data || []);
+      }
+    } catch (err) {
+      console.warn('[agency-confirmers] failed to fetch:', err?.response?.status, err?.message);
+    }
+  }, [isRepoAgent]);
+
+  // Helper: send WhatsApp message
+  const sendWhatsAppMessage = useCallback(async (phoneNumber, message) => {
+    try {
+      // Clean phone number (remove spaces, dashes, etc.)
+      const cleanNumber = phoneNumber.replace(/[^\d]/g, '');
+      
+      // Add country code if not present
+      const formattedNumber = cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`;
+      
+      // Choose WhatsApp URL based on type
+      const whatsappUrl = whatsappType === 'business' 
+        ? `whatsapp://send?phone=${formattedNumber}&text=${encodeURIComponent(message)}`
+        : `whatsapp://send?phone=${formattedNumber}&text=${encodeURIComponent(message)}`;
+      
+      // Try to open WhatsApp
+      const canOpen = await Linking.canOpenURL(whatsappUrl);
+      if (canOpen) {
+        await Linking.openURL(whatsappUrl);
+      } else {
+        // Fallback to web WhatsApp
+        const webUrl = `https://wa.me/${formattedNumber}?text=${encodeURIComponent(message)}`;
+        await Linking.openURL(webUrl);
+      }
+    } catch (error) {
+      console.error('Error sending WhatsApp message:', error);
+      Alert.alert('Error', 'Could not open WhatsApp. Please make sure WhatsApp is installed.');
+    }
+  }, [whatsappType]);
+
+  // Helper: show WhatsApp type selection
+  const showWhatsAppTypeSelection = useCallback(() => {
+    Alert.alert(
+      'Select WhatsApp Type',
+      'Choose which WhatsApp to use for messaging:',
+      [
+        {
+          text: 'Normal WhatsApp',
+          onPress: () => setWhatsappType('normal')
+        },
+        {
+          text: 'Business WhatsApp',
+          onPress: () => setWhatsappType('business')
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }
+      ]
+    );
+  }, []);
 
   const runSearch = async (qVal, type, showLoading = false, clearInputsAfter = false) => {
     try {
@@ -531,11 +605,17 @@ export default function SearchResultsScreen({ route, navigation }) {
 
         // Log search click to per-tenant history
         await logSearchClick(item, regSuffixInput || chassisInput || '');
+        
+        // Fetch agency confirmers for repo agents
+        await fetchAgencyConfirmers();
       } catch (error) {
         console.error('Error fetching vehicle details:', error);
         // Fallback to local data if server fails
         setDetail(item);
         setDetailOpen(true);
+        
+        // Fetch agency confirmers for repo agents (fallback case)
+        await fetchAgencyConfirmers();
       }
     }}>
       <Text numberOfLines={1} style={styles.listTitle}>{item.regNo || ''}</Text>
@@ -651,11 +731,17 @@ export default function SearchResultsScreen({ route, navigation }) {
 
                     // Log search click to per-tenant history
                     await logSearchClick(item, regSuffixInput || chassisInput || '');
+                    
+                    // Fetch agency confirmers for repo agents
+                    await fetchAgencyConfirmers();
                   } catch (error) {
                     console.error('Error fetching vehicle details (A-Z):', error);
                     // Fallback to local data if server fails
                     setDetail(item);
                     setDetailOpen(true);
+                    
+                    // Fetch agency confirmers for repo agents (fallback case)
+                    await fetchAgencyConfirmers();
                   }
                 }}>
                   <Text numberOfLines={1} style={[styles.listTitle, { color: theme.textPrimary }]}>{item.regNo || ''}</Text>
@@ -675,11 +761,17 @@ export default function SearchResultsScreen({ route, navigation }) {
 
                     // Log search click to per-tenant history
                     await logSearchClick(item, regSuffixInput || chassisInput || '');
+                    
+                    // Fetch agency confirmers for repo agents
+                    await fetchAgencyConfirmers();
                   } catch (error) {
                     console.error('Error fetching vehicle details (A-Z):', error);
                     // Fallback to local data if server fails
                     setDetail(item);
                     setDetailOpen(true);
+                    
+                    // Fetch agency confirmers for repo agents (fallback case)
+                    await fetchAgencyConfirmers();
                   }
                 }}>
                   <Text numberOfLines={1} style={[styles.listTitle, { color: theme.textPrimary }]}>{item.regNo || ''}</Text>
@@ -760,43 +852,62 @@ export default function SearchResultsScreen({ route, navigation }) {
 
                     {/* Confirmed by Section */}
                     <View style={[styles.detailsSection, { borderBottomColor: theme.surfaceBorder }]}>
-                      <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Confirmed By</Text>
+                      <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Agency Confirmer</Text>
                       
-                      <View style={styles.compactDetailRow}>
-                        <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>1st Name:</Text>
-                        <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{detail.confirmedBy1stName || 'N/A'}</Text>
-                        <TouchableOpacity style={styles.whatsappIcon}>
-                          <Text style={styles.whatsappIconText}>📱</Text>
-                        </TouchableOpacity>
-                      </View>
+                      {agencyConfirmers && agencyConfirmers.length > 0 ? (
+                        agencyConfirmers.map((confirmer, index) => (
+                          <View key={index}>
+                            <View style={styles.compactDetailRow}>
+                              <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>
+                                Confirmer By{index + 1}:
+                              </Text>
+                              <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>
+                                {confirmer.name || 'N/A'}
+                              </Text>
+                            </View>
 
-                      <View style={styles.compactDetailRow}>
-                        <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Number:</Text>
-                        <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{detail.confirmedBy1stNumber || 'N/A'}</Text>
-                        <TouchableOpacity style={styles.whatsappIcon}>
-                          <Text style={styles.whatsappIconText}>📱</Text>
-                        </TouchableOpacity>
-                      </View>
-
-                      <View style={styles.compactDetailRow}>
-                        <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>2nd Name:</Text>
-                        <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{detail.confirmedBy2ndName || 'N/A'}</Text>
-                        <TouchableOpacity style={styles.whatsappIcon}>
-                          <Text style={styles.whatsappIconText}>📱</Text>
-                        </TouchableOpacity>
-                      </View>
-
-                      <View style={styles.compactDetailRow}>
-                        <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Number:</Text>
-                        <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>{detail.confirmedBy2ndNumber || 'N/A'}</Text>
-                        <TouchableOpacity style={styles.whatsappIcon}>
-                          <Text style={styles.whatsappIconText}>📱</Text>
-                        </TouchableOpacity>
-                      </View>
+                            <View style={styles.compactDetailRow}>
+                              <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>
+                                Confirmer Phone No{index + 1}:
+                              </Text>
+                              <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>
+                                {confirmer.phoneNumber || 'N/A'}
+                              </Text>
+                              {confirmer.phoneNumber && (
+                                <TouchableOpacity 
+                                  style={styles.whatsappIcon}
+                                  onPress={() => {
+                                    const message = `Hello ${confirmer.name || 'Sir/Madam'}, I need to discuss about vehicle confirmation.`;
+                                    sendWhatsAppMessage(confirmer.phoneNumber, message);
+                                  }}
+                                >
+                                  <Text style={styles.whatsappIconText}>💬</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          </View>
+                        ))
+                      ) : (
+                        <View style={styles.compactDetailRow}>
+                          <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>
+                            No agency confirmers configured
+                          </Text>
+                        </View>
+                      )}
                     </View>
 
                     {/* Action: WhatsApp share (dynamic fields based on mapping) */}
                     <View style={styles.actionSection}>
+                      {/* WhatsApp Type Selection Button */}
+                      <TouchableOpacity 
+                        style={[styles.whatsappTypeBtn, { backgroundColor: isDark ? '#1f2937' : '#F3F4F6' }]} 
+                        onPress={showWhatsAppTypeSelection}
+                      >
+                        <Text style={[styles.whatsappTypeBtnText, { color: theme.textPrimary }]}>
+                          📱 {whatsappType === 'business' ? 'Business WhatsApp' : 'Normal WhatsApp'} ▼
+                        </Text>
+                      </TouchableOpacity>
+                      
                       <TouchableOpacity style={styles.whatsBtn} onPress={async () => {
                         try {
                           const fm = fieldMapping || {};
@@ -831,9 +942,19 @@ export default function SearchResultsScreen({ route, navigation }) {
                             metadata: { regNo: detail.regNo || '', chassisNo: detail.chassisNo || '' }
                           }, { headers: { Authorization: `Bearer ${token}` } }).catch(()=>{});
 
-                          const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
-                          const { Linking } = require('react-native');
-                          Linking.openURL(url).catch(() => {});
+                          // Use the selected WhatsApp type
+                          const whatsappUrl = whatsappType === 'business' 
+                            ? `whatsapp://send?text=${encodeURIComponent(text)}`
+                            : `whatsapp://send?text=${encodeURIComponent(text)}`;
+                          
+                          const canOpen = await Linking.canOpenURL(whatsappUrl);
+                          if (canOpen) {
+                            await Linking.openURL(whatsappUrl);
+                          } else {
+                            // Fallback to web WhatsApp
+                            const webUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                            await Linking.openURL(webUrl);
+                          }
                         } catch (_) {}
                       }}>
                         <Text style={styles.whatsBtnText}>📱 Share on WhatsApp</Text>
@@ -898,6 +1019,100 @@ export default function SearchResultsScreen({ route, navigation }) {
                       </View>
                     </View>
 
+                    {/* Confirmer Details Section for Office Staff */}
+                    {(detail.firstConfirmerName || detail.firstConfirmerPhone || detail.secondConfirmerName || detail.secondConfirmerPhone || detail.thirdConfirmerName || detail.thirdConfirmerPhone) && (
+                      <View style={[styles.detailsSection, { borderBottomColor: theme.surfaceBorder }]}>
+                        <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>Confirmer Details</Text>
+                        
+                        {/* First Confirmer */}
+                        {(detail.firstConfirmerName || detail.firstConfirmerPhone) && (
+                          <View>
+                            <View style={styles.compactDetailRow}>
+                              <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Confirmer 1:</Text>
+                              <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>
+                                {detail.firstConfirmerName || 'N/A'}
+                              </Text>
+                            </View>
+                            <View style={styles.compactDetailRow}>
+                              <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Phone 1:</Text>
+                              <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>
+                                {detail.firstConfirmerPhone || 'N/A'}
+                              </Text>
+                              {detail.firstConfirmerPhone && (
+                                <TouchableOpacity 
+                                  style={styles.whatsappIcon}
+                                  onPress={() => {
+                                    const message = `Hello ${detail.firstConfirmerName || 'Sir/Madam'}, I need to discuss about vehicle confirmation.`;
+                                    sendWhatsAppMessage(detail.firstConfirmerPhone, message);
+                                  }}
+                                >
+                                  <Text style={styles.whatsappIconText}>💬</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          </View>
+                        )}
+
+                        {/* Second Confirmer */}
+                        {(detail.secondConfirmerName || detail.secondConfirmerPhone) && (
+                          <View>
+                            <View style={styles.compactDetailRow}>
+                              <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Confirmer 2:</Text>
+                              <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>
+                                {detail.secondConfirmerName || 'N/A'}
+                              </Text>
+                            </View>
+                            <View style={styles.compactDetailRow}>
+                              <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Phone 2:</Text>
+                              <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>
+                                {detail.secondConfirmerPhone || 'N/A'}
+                              </Text>
+                              {detail.secondConfirmerPhone && (
+                                <TouchableOpacity 
+                                  style={styles.whatsappIcon}
+                                  onPress={() => {
+                                    const message = `Hello ${detail.secondConfirmerName || 'Sir/Madam'}, I need to discuss about vehicle confirmation.`;
+                                    sendWhatsAppMessage(detail.secondConfirmerPhone, message);
+                                  }}
+                                >
+                                  <Text style={styles.whatsappIconText}>💬</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          </View>
+                        )}
+
+                        {/* Third Confirmer */}
+                        {(detail.thirdConfirmerName || detail.thirdConfirmerPhone) && (
+                          <View>
+                            <View style={styles.compactDetailRow}>
+                              <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Confirmer 3:</Text>
+                              <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>
+                                {detail.thirdConfirmerName || 'N/A'}
+                              </Text>
+                            </View>
+                            <View style={styles.compactDetailRow}>
+                              <Text style={[styles.compactDetailLabel, { color: theme.textSecondary }]}>Phone 3:</Text>
+                              <Text style={[styles.compactDetailValue, { color: theme.textPrimary }]}>
+                                {detail.thirdConfirmerPhone || 'N/A'}
+                              </Text>
+                              {detail.thirdConfirmerPhone && (
+                                <TouchableOpacity 
+                                  style={styles.whatsappIcon}
+                                  onPress={() => {
+                                    const message = `Hello ${detail.thirdConfirmerName || 'Sir/Madam'}, I need to discuss about vehicle confirmation.`;
+                                    sendWhatsAppMessage(detail.thirdConfirmerPhone, message);
+                                  }}
+                                >
+                                  <Text style={styles.whatsappIconText}>💬</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          </View>
+                        )}
+                      </View>
+                    )}
+
                     {/* Action Buttons */}
                     <View style={styles.actionSection}>
                       <TouchableOpacity style={styles.primaryBtn} onPress={async () => {
@@ -916,6 +1131,16 @@ export default function SearchResultsScreen({ route, navigation }) {
                         </Text>
                       </TouchableOpacity>
                       
+                      {/* WhatsApp Type Selection Button */}
+                      <TouchableOpacity 
+                        style={[styles.whatsappTypeBtn, { backgroundColor: isDark ? '#1f2937' : '#F3F4F6' }]} 
+                        onPress={showWhatsAppTypeSelection}
+                      >
+                        <Text style={[styles.whatsappTypeBtnText, { color: theme.textPrimary }]}>
+                          📱 {whatsappType === 'business' ? 'Business WhatsApp' : 'Normal WhatsApp'} ▼
+                        </Text>
+                      </TouchableOpacity>
+                      
                       <TouchableOpacity style={styles.whatsBtn} onPress={async () => {
                         try {
                           const text = `🚗 *Vehicle Details*\n\n👤 *Name:* ${detail.customerName || '—'}\n🔢 *Vehicle:* ${detail.regNo || '—'}\n🔧 *Chassis:* ${detail.chassisNo || '—'}\n⚙️ *Engine:* ${detail.engineNo || '—'}\n🏭 *Make:* ${detail.make || '—'}\n🚘 *Model:* ${detail.model || '—'}`;
@@ -929,9 +1154,19 @@ export default function SearchResultsScreen({ route, navigation }) {
                             metadata: { regNo: detail.regNo || '', chassisNo: detail.chassisNo || '' }
                           }, { headers: { Authorization: `Bearer ${token}` } }).catch(()=>{});
 
-                          const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
-                          const { Linking } = require('react-native');
-                          Linking.openURL(url).catch(() => {});
+                          // Use the selected WhatsApp type
+                          const whatsappUrl = whatsappType === 'business' 
+                            ? `whatsapp://send?text=${encodeURIComponent(text)}`
+                            : `whatsapp://send?text=${encodeURIComponent(text)}`;
+                          
+                          const canOpen = await Linking.canOpenURL(whatsappUrl);
+                          if (canOpen) {
+                            await Linking.openURL(whatsappUrl);
+                          } else {
+                            // Fallback to web WhatsApp
+                            const webUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                            await Linking.openURL(webUrl);
+                          }
                         } catch (_) {}
                       }}>
                         <Text style={styles.whatsBtnText}>📱 Share on WhatsApp</Text>
@@ -1003,6 +1238,8 @@ const styles = StyleSheet.create({
   ,segTextActive: { color: '#fff' }
   ,whatsappIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#25D366', alignItems: 'center', justifyContent: 'center', marginLeft: 10 }
   ,whatsappIconText: { fontSize: 16, color: '#fff' }
+  ,whatsappTypeBtn: { borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, alignItems: 'center', marginBottom: 8, borderWidth: 1, borderColor: '#E5E7EB' }
+  ,whatsappTypeBtnText: { fontWeight: '600', fontSize: 14 }
   // Loading skeleton styles
   ,loadingSkeleton: { flex: 1, paddingVertical: 8 }
   ,skeletonItem: { 

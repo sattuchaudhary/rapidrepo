@@ -199,10 +199,10 @@ router.put('/settings', authenticateUnifiedToken, async (req, res) => {
     const { dataMultiplier } = req.body;
     
     // Validate dataMultiplier
-    if (dataMultiplier && ![1, 2, 4].includes(dataMultiplier)) {
+    if (dataMultiplier && ![1, 2, 3, 4, 5, 6].includes(dataMultiplier)) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Data multiplier must be 1, 2, or 4' 
+        message: 'Data multiplier must be 1, 2, 3, 4, 5, or 6' 
       });
     }
 
@@ -240,6 +240,164 @@ router.put('/settings', authenticateUnifiedToken, async (req, res) => {
   } catch (error) {
     console.error('Error updating tenant settings:', error);
     res.status(500).json({ success: false, message: 'Failed to update tenant settings' });
+  }
+});
+
+// Agency confirmer management endpoints
+router.get('/agency-confirmers', authenticateUnifiedToken, async (req, res) => {
+  try {
+    const tenantId = req.user?.tenantId;
+    if (!tenantId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+
+    // Get tenant-specific database connection
+    const { getTenantDB } = require('../config/database');
+    const tenantDb = await getTenantDB(tenant.name);
+    
+    // Create AgencyConfirmer model for this tenant
+    const AgencyConfirmer = tenantDb.model('AgencyConfirmer', require('../models/AgencyConfirmer'));
+    
+    // Get all active agency confirmers
+    const confirmers = await AgencyConfirmer.find({ isActive: true }).sort({ createdAt: 1 });
+
+    res.json({ 
+      success: true, 
+      data: confirmers
+    });
+  } catch (error) {
+    console.error('Error getting agency confirmers:', error);
+    res.status(500).json({ success: false, message: 'Failed to get agency confirmers' });
+  }
+});
+
+router.put('/agency-confirmers', authenticateUnifiedToken, async (req, res) => {
+  try {
+    const tenantId = req.user?.tenantId;
+    if (!tenantId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { agencyConfirmers } = req.body;
+
+    // Validate agency confirmers data
+    if (!Array.isArray(agencyConfirmers)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Agency confirmers must be an array' 
+      });
+    }
+
+    // Validate each confirmer
+    for (let i = 0; i < agencyConfirmers.length; i++) {
+      const confirmer = agencyConfirmers[i];
+      
+      if (!confirmer.name || !confirmer.phoneNumber) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Confirmer ${i + 1}: Name and phone number are required` 
+        });
+      }
+      
+      if (!/^\d{10}$/.test(confirmer.phoneNumber)) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Confirmer ${i + 1}: Phone number must be exactly 10 digits` 
+        });
+      }
+    }
+
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+
+    console.log('User object for agency confirmers:', req.user);
+    console.log('Tenant ID:', tenantId);
+
+    // Get tenant-specific database connection
+    const { getTenantDB } = require('../config/database');
+    const tenantDb = await getTenantDB(tenant.name);
+    
+    // Create AgencyConfirmer model for this tenant
+    const AgencyConfirmer = tenantDb.model('AgencyConfirmer', require('../models/AgencyConfirmer'));
+    
+    // Deactivate all existing confirmers
+    await AgencyConfirmer.updateMany({}, { isActive: false });
+    
+    // Create new confirmers
+    const newConfirmers = agencyConfirmers.map(confirmer => ({
+      name: confirmer.name,
+      phoneNumber: confirmer.phoneNumber,
+      isActive: true,
+      createdBy: req.user?._id || req.user?.id || tenantId
+    }));
+    
+    const savedConfirmers = await AgencyConfirmer.insertMany(newConfirmers);
+
+    res.json({ 
+      success: true, 
+      message: 'Agency confirmers updated successfully',
+      data: savedConfirmers
+    });
+  } catch (error) {
+    console.error('Error updating agency confirmers:', error);
+    res.status(500).json({ success: false, message: 'Failed to update agency confirmers' });
+  }
+});
+
+// Public endpoint for mobile app to fetch agency confirmers (for repo agents only)
+router.get('/agency-confirmers/mobile', authenticateUnifiedToken, async (req, res) => {
+  try {
+    const tenantId = req.user?.tenantId;
+    if (!tenantId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // Check if user is a repo agent
+    const userType = req.user?.userType || '';
+    const role = req.user?.role || '';
+    const isRepoAgent = typeof userType === 'string' && userType.toLowerCase().includes('repo') ||
+                       typeof role === 'string' && role.toLowerCase().includes('repo') ||
+                       typeof req.user?.designation === 'string' && req.user.designation.toLowerCase().includes('repo') ||
+                       typeof req.user?.type === 'string' && req.user.type.toLowerCase().includes('repo') ||
+                       typeof req.user?.title === 'string' && req.user.title.toLowerCase().includes('repo');
+
+    // Only repo agents can access agency confirmer data
+    if (!isRepoAgent) {
+      return res.json({ 
+        success: true, 
+        data: [] 
+      });
+    }
+
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+
+    // Get tenant-specific database connection
+    const { getTenantDB } = require('../config/database');
+    const tenantDb = await getTenantDB(tenant.name);
+    
+    // Create AgencyConfirmer model for this tenant
+    const AgencyConfirmer = tenantDb.model('AgencyConfirmer', require('../models/AgencyConfirmer'));
+    
+    // Get all active agency confirmers
+    const confirmers = await AgencyConfirmer.find({ isActive: true }).sort({ createdAt: 1 });
+
+    res.json({ 
+      success: true, 
+      data: confirmers
+    });
+  } catch (error) {
+    console.error('Error getting agency confirmers for mobile:', error);
+    res.status(500).json({ success: false, message: 'Failed to get agency confirmers' });
   }
 });
 

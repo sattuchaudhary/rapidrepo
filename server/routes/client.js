@@ -1,11 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const clientController = require('../controllers/clientController');
-const { authenticateToken, requireAdmin } = require('../middleware/auth');
+const { authenticateUnifiedToken } = require('../middleware/unifiedAuth');
 
-// All routes require authentication and admin role
-router.use(authenticateToken);
-router.use(requireAdmin);
+// All routes require unified authentication
+router.use(authenticateUnifiedToken);
 
 // Client Management Routes
 router.post('/', clientController.createClient);

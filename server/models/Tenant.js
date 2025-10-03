@@ -59,12 +59,12 @@ const tenantSchema = new mongoose.Schema({
     dataMultiplier: {
       type: Number,
       default: 1,
-      enum: [1, 2, 4],
+      enum: [1, 2, 3, 4, 5, 6],
       validate: {
         validator: function(v) {
-          return [1, 2, 4].includes(v);
+          return [1, 2, 3, 4, 5, 6].includes(v);
         },
-        message: 'Data multiplier must be 1, 2, or 4'
+        message: 'Data multiplier must be 1, 2, 3, 4, 5, or 6'
       }
     }
   },
