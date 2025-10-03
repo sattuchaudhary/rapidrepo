@@ -103,6 +103,10 @@ const MobileUpload = () => {
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isLoadingUpload, setIsLoadingUpload] = useState(false);
   const [currentAction, setCurrentAction] = useState('');
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [passwordValue, setPasswordValue] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [pendingAction, setPendingAction] = useState(''); // 'preview' | 'upload'
 
   const standardFields = [
     'location','bankName','agreementNumber','customerName','vehicleMake','registrationNumber','engineNumber','chassisNumber','emiAmount','pos','bucketStatus','address','branchName','firstConfirmedName','firstConfirmerPhone','secondConfirmedName','secondConfirmerPhone','thirdConfirmerName','thirdConfirmerPhone','zone','areaOffice','region','allocation','vehicleModel','productName'
@@ -284,7 +288,16 @@ const MobileUpload = () => {
       }
     } catch (error) {
       console.error('Auto-load error:', error);
-      toast.error(error.response?.data?.message || 'Failed to auto-load file');
+      const code = error.response?.data?.error;
+      const message = error.response?.data?.message;
+      if (code === 'PASSWORD_REQUIRED' || code === 'INVALID_PASSWORD') {
+        setPendingAction('preview');
+        setShowPasswordDialog(true);
+        setPasswordError(code === 'INVALID_PASSWORD' ? (message || 'Invalid password') : '');
+        toast.warn(message || 'Password required to open this file');
+      } else {
+        toast.error(message || 'Failed to auto-load file');
+      }
     } finally {
       setIsLoadingPreview(false);
       setCurrentAction('');
@@ -411,10 +424,167 @@ const MobileUpload = () => {
       }
     } catch (error) {
       console.error('Upload error:', error);
-      setUploadStatus('Upload failed');
-      setErrorCount(1);
-      setErrors([error.response?.data?.message || 'Upload failed']);
-      toast.error('Upload failed');
+      const code = error.response?.data?.error;
+      const message = error.response?.data?.message;
+      if (code === 'PASSWORD_REQUIRED' || code === 'INVALID_PASSWORD') {
+        // Prompt for password and retry
+        setPendingAction('upload');
+        setShowPasswordDialog(true);
+        setPasswordError(code === 'INVALID_PASSWORD' ? (message || 'Invalid password') : '');
+        toast.warn(message || 'Password required to open this file');
+      } else {
+        setUploadStatus('Upload failed');
+        setErrorCount(1);
+        setErrors([message || 'Upload failed']);
+        toast.error(message || 'Upload failed');
+      }
+    } finally {
+      setIsUploading(false);
+      setIsLoadingUpload(false);
+      setCurrentAction('');
+    }
+  };
+
+  const retryPreviewWithPassword = async () => {
+    if (!file) return;
+    try {
+      setPasswordError('');
+      setIsLoadingPreview(true);
+      setCurrentAction('Decrypting and loading file...');
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('preview', 'true');
+      formData.append('password', passwordValue);
+
+      const stdToFileFromColumns = {};
+      Object.entries(columnMapping).forEach(([fileCol, std]) => { 
+        if (std && std.trim() !== '') {
+          stdToFileFromColumns[std] = fileCol; 
+        }
+      });
+      const finalMapping = Object.keys(stdToFileFromColumns).length > 0 ? stdToFileFromColumns : headerMapping;
+      if (Object.keys(finalMapping).length > 0) {
+        formData.append('mapping', JSON.stringify(finalMapping));
+      }
+
+      const token = localStorage.getItem('token');
+      const response = await axios.post('http://localhost:5000/api/tenant/mobile/preview', formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      if (response.data.success) {
+        setPreviewData(response.data.data);
+        setHeaders(response.data.headers || []);
+        setRawRows(response.data.rawRows || []);
+        setShowPreview(false);
+        setShowPasswordDialog(false);
+        setPasswordValue('');
+        toast.success('File loaded');
+        if (Object.keys(headerMapping).length > 0 && (response.data.headers || []).length) {
+          const inverted = {};
+          Object.entries(headerMapping).forEach(([std, fileCol]) => { inverted[fileCol] = std; });
+          setColumnMapping(inverted);
+        } else {
+          setColumnMapping({});
+        }
+      }
+    } catch (error) {
+      const code = error.response?.data?.error;
+      const message = error.response?.data?.message;
+      if (code === 'INVALID_PASSWORD') {
+        setPasswordError(message || 'Invalid password');
+      } else {
+        setShowPasswordDialog(false);
+        setPasswordValue('');
+        toast.error(message || 'Failed to load file');
+      }
+    } finally {
+      setIsLoadingPreview(false);
+      setCurrentAction('');
+    }
+  };
+
+  const retryUploadWithPassword = async () => {
+    if (!vehicleType || !file || !selectedBank) return;
+    try {
+      setPasswordError('');
+      setIsUploading(true);
+      setIsLoadingUpload(true);
+      setCurrentAction('Uploading file...');
+      setUploadProgress(0);
+      setUploadStatus('Uploading...');
+
+      const formData = new FormData();
+      formData.append('vehicleType', vehicleType);
+      formData.append('bankId', selectedBank);
+      formData.append('bankName', banks.find(b => String(b._id) === String(selectedBank))?.name || '');
+      formData.append('file', file);
+      formData.append('password', passwordValue);
+
+      const stdToFileFromColumns = {};
+      Object.entries(columnMapping).forEach(([fileCol, std]) => { 
+        if (std && std.trim() !== '') {
+          stdToFileFromColumns[std] = fileCol; 
+        }
+      });
+      const finalMapping = Object.keys(stdToFileFromColumns).length > 0 ? stdToFileFromColumns : headerMapping;
+      if (Object.keys(finalMapping).length > 0) {
+        formData.append('mapping', JSON.stringify(finalMapping));
+      }
+
+      const token = localStorage.getItem('token');
+      const response = await axios.post('http://localhost:5000/api/tenant/mobile/upload', formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 1200000,
+        maxContentLength: 10 * 1024 * 1024 * 1024,
+        maxBodyLength: 10 * 1024 * 1024 * 1024,
+        onUploadProgress: (progressEvent) => {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress(progress);
+        }
+      });
+
+      if (response.data.success) {
+        setShowPasswordDialog(false);
+        setPasswordValue('');
+        setUploadStatus('Upload completed successfully');
+        setSuccessCount(response.data.inserted || 0);
+        setErrorCount(response.data.errors?.length || 0);
+        setErrors(response.data.errors || []);
+        setWarnings(response.data.warnings || []);
+        if (response.data.mappingSummary) {
+          setWarnings(prev => [`Mapping Info: ${response.data.mappingSummary}`, ...prev]);
+        }
+        setActiveStep(2);
+        toast.success(`Successfully uploaded ${response.data.inserted} records`);
+        fetchUploadHistory();
+        setFile(null);
+        setPreviewData([]);
+        setHeaders([]);
+        setRawRows([]);
+        setColumnMapping({});
+        setHeaderMapping({});
+      }
+    } catch (error) {
+      const code = error.response?.data?.error;
+      const message = error.response?.data?.message;
+      if (code === 'INVALID_PASSWORD') {
+        setPasswordError(message || 'Invalid password');
+      } else {
+        setShowPasswordDialog(false);
+        setPasswordValue('');
+        setUploadStatus('Upload failed');
+        setErrorCount(1);
+        setErrors([message || 'Upload failed']);
+        toast.error(message || 'Upload failed');
+      }
     } finally {
       setIsUploading(false);
       setIsLoadingUpload(false);
@@ -999,6 +1169,33 @@ const MobileUpload = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setShowHistory(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+      {/* Password Prompt Dialog */}
+      <Dialog open={showPasswordDialog} onClose={() => { setShowPasswordDialog(false); setPasswordValue(''); setPasswordError(''); }} maxWidth="xs" fullWidth>
+        <DialogTitle>Enter File Password</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            This file is password-protected. Please enter the password to continue.
+          </Typography>
+          <TextField
+            type="password"
+            label="Password"
+            value={passwordValue}
+            onChange={(e) => setPasswordValue(e.target.value)}
+            fullWidth
+            autoFocus
+            error={!!passwordError}
+            helperText={passwordError || ''}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setShowPasswordDialog(false); setPasswordValue(''); setPasswordError(''); }}>Cancel</Button>
+          <Button variant="contained" onClick={() => {
+            if (!passwordValue) { setPasswordError('Password is required'); return; }
+            if (pendingAction === 'preview') { retryPreviewWithPassword(); }
+            else if (pendingAction === 'upload') { retryUploadWithPassword(); }
+          }}>Continue</Button>
         </DialogActions>
       </Dialog>
     </Box>

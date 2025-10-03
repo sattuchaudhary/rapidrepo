@@ -22,17 +22,28 @@ const upload = multer({
     fieldNameSize: 1000 // 1KB field name size
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'application/vnd.ms-excel',
-      'text/csv'
-    ];
-    
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only Excel and CSV files are allowed.'), false);
+    const allowedMimeTypes = new Set([
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+      'application/vnd.ms-excel', // xls
+      'application/vnd.ms-excel.sheet.macroEnabled.12', // xlsm
+      'text/csv',
+      'application/csv',
+      'text/plain'
+    ]);
+
+    if (allowedMimeTypes.has(file.mimetype)) {
+      return cb(null, true);
     }
+
+    // Fallback to extension check when mimetype is unreliable (common on Windows)
+    const name = (file.originalname || '').toLowerCase();
+    const allowedExtensions = ['.xlsx', '.xls', '.xlsm', '.csv'];
+    const hasAllowedExt = allowedExtensions.some(ext => name.endsWith(ext));
+    if (hasAllowedExt) {
+      return cb(null, true);
+    }
+
+    cb(new Error('Invalid file type. Only Excel (.xlsx/.xls/.xlsm) and CSV (.csv) files are allowed.'), false);
   }
 });
 
@@ -390,8 +401,23 @@ router.post('/preview', upload.single('file'), async (req, res) => {
       return res.status(400).json({ success: false, message: 'No file provided' });
     }
 
-    // Parse Excel file
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    // Parse Excel/CSV file (support password if provided; community builds may not decrypt encrypted workbooks)
+    const password = req.body?.password || undefined;
+    let workbook;
+    try {
+      workbook = XLSX.read(req.file.buffer, { type: 'buffer', password });
+    } catch (err) {
+      const msg = String(err?.message || '').toLowerCase();
+      // Heuristics: xlsx throws different messages for encrypted files depending on build
+      const looksEncrypted = msg.includes('password') || msg.includes('encrypted') || msg.includes('decrypt') || msg.includes('protected');
+      if (looksEncrypted && !password) {
+        return res.status(400).json({ success: false, message: 'This file is password-protected. Please enter the password.', error: 'PASSWORD_REQUIRED' });
+      }
+      if (looksEncrypted && password) {
+        return res.status(400).json({ success: false, message: 'Invalid password. Please try again.', error: 'INVALID_PASSWORD' });
+      }
+      return res.status(400).json({ success: false, message: 'Unable to read file. Ensure it is a valid Excel/CSV.', error: 'READ_FAILED' });
+    }
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
@@ -498,8 +524,22 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     const UploadModel = conn.model('Upload', uploadSchema, `${collectionName}_uploads`);
 
-    // Parse Excel file
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    // Parse Excel/CSV file (support password if provided)
+    const password = req.body?.password || undefined;
+    let workbook;
+    try {
+      workbook = XLSX.read(req.file.buffer, { type: 'buffer', password });
+    } catch (err) {
+      const msg = String(err?.message || '').toLowerCase();
+      const looksEncrypted = msg.includes('password') || msg.includes('encrypted') || msg.includes('decrypt') || msg.includes('protected');
+      if (looksEncrypted && !password) {
+        return res.status(400).json({ success: false, message: 'This file is password-protected. Please enter the password.', error: 'PASSWORD_REQUIRED' });
+      }
+      if (looksEncrypted && password) {
+        return res.status(400).json({ success: false, message: 'Invalid password. Please try again.', error: 'INVALID_PASSWORD' });
+      }
+      return res.status(400).json({ success: false, message: 'Unable to read file. Ensure it is a valid Excel/CSV.', error: 'READ_FAILED' });
+    }
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
