@@ -30,10 +30,6 @@ const DownloadProgress = ({ visible = false, progress = null, onCancel = null })
           <Text style={styles.title}>Downloading Data</Text>
           
           <View style={styles.progressContainer}>
-            <Text style={styles.progressText}>
-              {formatNumber(progress?.processed || 0)} / {formatNumber(progress?.total || 0)} records
-            </Text>
-            
             <SimpleProgressBar 
               progress={displayProgress}
               height={8}

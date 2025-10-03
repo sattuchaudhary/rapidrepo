@@ -31,15 +31,31 @@ const authenticateUnifiedToken = async (req, res, next) => {
     if (decoded.userType === 'main_user') {
       const user = await User.findById(decoded.userId).select('-password');
       
+      console.log('🔐 Checking main user:', decoded.userId, 'Found:', !!user, 'Active:', user?.isActive);
       
       if (!user || !user.isActive) {
+        console.log('🔐 Main user not found or inactive');
         return res.status(401).json({
           success: false,
-          message: 'User not found or inactive'
+          message: 'Invalid token - user not found'
         });
       }
       
       req.user.mainUser = user;
+    } else {
+      // For mobile users (repo agents, office staff), skip user validation
+      // They are stored in tenant-specific collections, not the main User table
+      console.log('🔐 Mobile user type:', decoded.userType, 'ID:', decoded.userId || decoded.agentId || decoded.staffId);
+      console.log('🔐 Mobile user tenantId:', decoded.tenantId);
+      
+      // Mobile users should have tenantId in their token
+      if (!decoded.tenantId) {
+        console.log('🔐 Mobile user missing tenantId');
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid token - missing tenant information'
+        });
+      }
     }
 
     next();

@@ -55,6 +55,17 @@ const tenantSchema = new mongoose.Schema({
       default: 10, // MB
       min: [1, 'Max file size must be at least 1 MB'],
       max: [100, 'Max file size cannot exceed 100 MB']
+    },
+    dataMultiplier: {
+      type: Number,
+      default: 1,
+      enum: [1, 2, 4],
+      validate: {
+        validator: function(v) {
+          return [1, 2, 4].includes(v);
+        },
+        message: 'Data multiplier must be 1, 2, or 4'
+      }
     }
   },
   createdBy: {
@@ -67,7 +78,7 @@ const tenantSchema = new mongoose.Schema({
     ref: 'User'
   },
   fieldMapping: {
-    
+    //mobile app me kya dikhana h 
     type: mongoose.Schema.Types.Mixed,
     default: {
       regNo: true,

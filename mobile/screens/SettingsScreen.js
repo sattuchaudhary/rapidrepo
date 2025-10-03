@@ -49,6 +49,7 @@ const SettingsScreen = () => {
     }
   };
 
+
   const handleForceSync = async () => {
     if (syncStats.isRunning) {
       Alert.alert('Sync Running', 'Background sync is already in progress');
@@ -125,6 +126,7 @@ const SettingsScreen = () => {
           <Text style={styles.statValue}>{syncStats.syncCount}</Text>
         </View>
       </View>
+
 
       {/* Manual Sync */}
       <View style={styles.section}>

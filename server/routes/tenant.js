@@ -149,6 +149,100 @@ router.put('/profile', authenticateUnifiedToken, async (req, res) => {
   }
 });
 
+// Tenant settings endpoints
+router.get('/settings', authenticateUnifiedToken, async (req, res) => {
+  try {
+    console.log('📊 Settings request - User type:', req.user?.userType, 'Role:', req.user?.role);
+    console.log('📊 Settings request - Full User:', req.user);
+    
+    const tenantId = req.user?.tenantId;
+    if (!tenantId) {
+      console.log('📊 No tenantId found in user object');
+      return res.status(401).json({ success: false, message: 'Unauthorized - No tenant ID' });
+    }
+
+    console.log('📊 Looking for tenant:', tenantId);
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      console.log('📊 Tenant not found:', tenantId);
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+
+    // Return settings with defaults
+    const settings = {
+      dataMultiplier: tenant.settings?.dataMultiplier || 1,
+      ...tenant.settings
+    };
+
+    console.log('📊 Returning settings for user type:', req.user?.userType, 'Settings:', settings);
+    res.json({ 
+      success: true, 
+      data: settings
+    });
+  } catch (error) {
+    console.error('Error getting tenant settings:', error);
+    res.status(500).json({ success: false, message: 'Failed to get tenant settings' });
+  }
+});
+
+router.put('/settings', authenticateUnifiedToken, async (req, res) => {
+  try {
+    console.log('📊 Settings update request - User:', req.user);
+    console.log('📊 Settings update request - Body:', req.body);
+    
+    const tenantId = req.user?.tenantId;
+    if (!tenantId) {
+      console.log('📊 No tenantId found in user object');
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { dataMultiplier } = req.body;
+    
+    // Validate dataMultiplier
+    if (dataMultiplier && ![1, 2, 4].includes(dataMultiplier)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Data multiplier must be 1, 2, or 4' 
+      });
+    }
+
+    // First get the current tenant to preserve existing settings
+    const currentTenant = await Tenant.findById(tenantId);
+    if (!currentTenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+
+    // Merge with existing settings
+    const updatedSettings = {
+      ...currentTenant.settings,
+      dataMultiplier: dataMultiplier || 1
+    };
+
+    console.log('📊 Updating settings to:', updatedSettings);
+
+    const tenant = await Tenant.findByIdAndUpdate(
+      tenantId, 
+      { 'settings.dataMultiplier': dataMultiplier || 1 },
+      { new: true, runValidators: true }
+    );
+
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found after update' });
+    }
+
+    console.log('📊 Updated tenant settings:', tenant.settings);
+
+    res.json({ 
+      success: true, 
+      message: 'Settings updated successfully',
+      data: tenant.settings
+    });
+  } catch (error) {
+    console.error('Error updating tenant settings:', error);
+    res.status(500).json({ success: false, message: 'Failed to update tenant settings' });
+  }
+});
+
 // Validation middleware
 const validateTenant = [
   body('name')

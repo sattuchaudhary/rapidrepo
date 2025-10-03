@@ -625,6 +625,7 @@ export default function DashboardScreen({ navigation }) {
   const contentFade = useState(new Animated.Value(0))[0];
   const contentSlide = useState(new Animated.Value(16))[0];
   const [localCount, setLocalCount] = useState(0);
+  const [dataMultiplier, setDataMultiplier] = useState(1);
   const [progressiveResults, setProgressiveResults] = useState([]);
   const [predictions, setPredictions] = useState([]);
   const [lastSyncTime, setLastSyncTime] = useState(null);
@@ -670,6 +671,9 @@ export default function DashboardScreen({ navigation }) {
         const flag = await SecureStore.getItemAsync('sync_complete_flag');
         setIsSyncComplete(flag === 'true');
         
+        // Load data multiplier setting from server
+        await loadMultiplierFromServer();
+        
         if (count > 0) {
           const lastSync = await SecureStore.getItemAsync('lastSyncTime');
           if (lastSync) {
@@ -699,6 +703,42 @@ export default function DashboardScreen({ navigation }) {
       }
     })();
   }, []);
+
+  const loadMultiplierFromServer = async () => {
+    try {
+      const token = await SecureStore.getItemAsync('token');
+      if (!token) {
+        console.log('📊 No token found, using default multiplier');
+        setDataMultiplier(1); // Default to 1x if no token
+        return;
+      }
+
+      // console.log('📊 Attempting to load multiplier from server...');
+      const res = await axios.get(`${getBaseURL()}/api/tenants/settings`, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 10000
+      });
+
+      if (res.data?.success && res.data.data?.dataMultiplier) {
+        setDataMultiplier(res.data.data.dataMultiplier);
+        console.log(`📊 Loaded data multiplier: ${res.data.data.dataMultiplier}x`);
+      } else {
+        console.log('📊 No multiplier setting found, using default');
+        setDataMultiplier(1); // Default to 1x if no setting found
+      }
+    } catch (error) {
+      console.error('📊 Error loading multiplier from server:', error.response?.status, error.response?.data || error.message);
+      
+      // If token is invalid, user should re-login
+      if (error.response?.status === 401) {
+        console.log('📊 Token invalid - user may need to re-login');
+        // Could optionally redirect to login here
+        // navigation.replace('Login');
+      }
+      
+      setDataMultiplier(1); // Default to 1x on error
+    }
+  };
 
   const logout = async () => {
     await SecureStore.deleteItemAsync('token');
@@ -1123,6 +1163,9 @@ export default function DashboardScreen({ navigation }) {
       setLocalCount(count);
       console.log(`Refreshed local count: ${count}`);
       
+      // Reload multiplier setting from server in case it was changed
+      await loadMultiplierFromServer();
+      
       // Auto-check for new records
       await checkForNewRecords();
     } catch (error) {
@@ -1295,7 +1338,7 @@ export default function DashboardScreen({ navigation }) {
         <View style={[styles.statCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
           <View>
             <Text style={[styles.statLabel, { color: theme.statLabel }]}>Local Records</Text>
-            <Text style={[styles.statValue, { color: theme.textPrimary }]}>{String(localCount || 0)}</Text>
+            <Text style={[styles.statValue, { color: theme.textPrimary }]}>{String((localCount || 0) * dataMultiplier)}</Text>
           </View>
           <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>🗃️</Text></View>
         </View>
@@ -1537,6 +1580,9 @@ export default function DashboardScreen({ navigation }) {
             </TouchableOpacity>
             <TouchableOpacity style={[styles.drawerItem, { backgroundColor: 'transparent' }]} onPress={() => { setDrawerOpen(false); navigation.navigate('Sync'); }}>
               <Text style={[styles.drawerItemText, { color: theme.drawerText }]}>🔄  Data Sync</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.drawerItem, { backgroundColor: 'transparent' }]} onPress={() => { setDrawerOpen(false); navigation.navigate('Settings'); }}>
+              <Text style={[styles.drawerItemText, { color: theme.drawerText }]}>⚙️  Settings</Text>
             </TouchableOpacity>
             <View style={[styles.drawerDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6' }]} />
             <TouchableOpacity style={[styles.drawerItem, { backgroundColor: isDark ? 'rgba(239,68,68,0.12)' : '#FEF2F2' }]} onPress={logout}>

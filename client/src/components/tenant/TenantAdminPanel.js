@@ -68,6 +68,7 @@ import UserStatistics from './UserStatistics';
 import Notifications from './Notifications';
 import SearchResults from './SearchResults';
 import TenantProfile from './TenantProfile';
+import TenantSettings from './TenantSettings';
 
 const TenantAdminPanel = () => {
   const navigate = useNavigate();
@@ -201,7 +202,7 @@ const TenantAdminPanel = () => {
       text: 'Settings',
       icon: <SettingsIcon />,
       path: '/app/tenant/settings',
-      expandable: true
+      active: location.pathname === '/app/tenant/settings'
     },
     {
       text: 'Profile',
@@ -996,6 +997,24 @@ const TenantAdminPanel = () => {
           )}
           {location.pathname === '/app/tenant/profile' && (
             <TenantProfile />
+          )}
+          {location.pathname === '/app/tenant/settings' && (
+            <TenantSettings />
+          )}
+          
+          {/* Fallback for unmatched routes */}
+          {!location.pathname.startsWith('/app/tenant/') && location.pathname !== '/app/tenant' && (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <Typography variant="h5" color="error" gutterBottom>
+                Route Not Found
+              </Typography>
+              <Typography variant="body1" color="text.secondary">
+                Current path: {location.pathname}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                Available routes: Dashboard, Settings, Profile, etc.
+              </Typography>
+            </Box>
           )}
           </Box>
         </Box>
