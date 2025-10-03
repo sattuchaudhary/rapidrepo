@@ -69,6 +69,7 @@ const ClientManagement = () => {
       }
       
       const response = await axios.get('http://localhost:5000/api/tenant/clients', {
+        params: { limit: 'all' },
         headers: { Authorization: `Bearer ${token}` }
       });
       

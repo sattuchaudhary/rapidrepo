@@ -139,6 +139,7 @@ const MobileUpload = () => {
         setCurrentAction('Loading banks...');
         const token = localStorage.getItem('token');
       const response = await axios.get('http://localhost:5000/api/tenant/clients', {
+        params: { limit: 'all' },
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.data.success) {
