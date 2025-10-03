@@ -53,6 +53,7 @@ import VersionChecker from '../components/VersionChecker';
 import UpdateNotification from '../components/UpdateNotification';
 import { getBaseURL } from '../utils/config';
 import axios from 'axios';
+import { maskPhoneNumber } from '../utils/format';
 
 export default function ProfileScreen({ navigation }) {
   const [agent, setAgent] = useState(null);
@@ -257,7 +258,7 @@ export default function ProfileScreen({ navigation }) {
           <ProfileField 
             icon="📱"
             label="Phone Number"
-            value={agent?.phoneNumber}
+            value={agent?.phoneNumber ? maskPhoneNumber(agent.phoneNumber) : undefined}
           />
           
           <ProfileField 

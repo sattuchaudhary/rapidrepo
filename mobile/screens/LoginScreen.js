@@ -76,7 +76,17 @@ export default function LoginScreen({ navigation }) {
           throw new Error(payload?.message || 'Login failed');
         }
         await SecureStore.setItemAsync('token', token);
-        await SecureStore.setItemAsync('agent', JSON.stringify(agent));
+        // Fetch current profile to get agentCode via /me
+        try {
+          const me = await axios.get(`${getBaseURL()}/api/tenant/users/me`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const full = me?.data?.data || {};
+          const merged = { ...agent, agentCode: full.agentCode, agentId: full.agentId, staffCode: full.staffCode, staffId: full.staffId };
+          await SecureStore.setItemAsync('agent', JSON.stringify(merged));
+        } catch (_) {
+          await SecureStore.setItemAsync('agent', JSON.stringify(agent));
+        }
         navigation.replace('Dashboard');
         return;
       } catch (agentErr) {
@@ -100,7 +110,17 @@ export default function LoginScreen({ navigation }) {
             tenantName: staff.tenantName
           };
           await SecureStore.setItemAsync('token', token);
-          await SecureStore.setItemAsync('agent', JSON.stringify(agentLike));
+          // Fetch current profile to get staffCode via /me
+          try {
+            const me = await axios.get(`${getBaseURL()}/api/tenant/users/me`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const full = me?.data?.data || {};
+            const merged = { ...agentLike, agentCode: full.agentCode, agentId: full.agentId, staffCode: full.staffCode, staffId: full.staffId };
+            await SecureStore.setItemAsync('agent', JSON.stringify(merged));
+          } catch (_) {
+            await SecureStore.setItemAsync('agent', JSON.stringify(agentLike));
+          }
           navigation.replace('Dashboard');
           return;
         }
@@ -117,8 +137,8 @@ export default function LoginScreen({ navigation }) {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <Animated.View style={[styles.card, { backgroundColor: theme.cardBg, opacity: fadeAnim, transform: [{ translateY: slideAnim }], borderColor: theme.surfaceBorder }]}> 
-            <Text style={[styles.brand, { color: theme.accent }]}>Repo</Text>
-            <Text style={[styles.title, { color: theme.textPrimary }]}>Welcome back</Text>
+            <Text style={[styles.brand, { color: theme.accent }]}></Text>
+            <Text style={[styles.title, { color: theme.textPrimary }]}>Rapid Repo</Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Sign in to continue</Text>
 
             {!!error && <Text style={[styles.error, { color: theme.danger }]}>{error}</Text>}
@@ -126,7 +146,7 @@ export default function LoginScreen({ navigation }) {
             <View style={styles.inputGroup}>
               <Text style={[styles.inputLabel, { color: theme.muted }]}>Email or Phone</Text>
               <TextInput
-                placeholder="you@example.com / 98XXXXXXXX"
+                placeholder="98XXXXXXXX"
                 autoCapitalize="none"
                 keyboardType="default"
                 value={identifier}

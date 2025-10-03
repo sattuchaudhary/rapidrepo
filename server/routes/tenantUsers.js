@@ -196,6 +196,59 @@ router.post('/staff/login', async (req, res) => {
   }
 });
 
+// Authenticated (non-admin): return current mobile user's profile with human-readable codes
+router.get('/me', authenticateUnifiedToken, async (req, res) => {
+  try {
+    const tenant = await Tenant.findById(req.user.tenantId);
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+
+    const tenantConnection = await getTenantDB(tenant.name);
+
+    // Determine user type and fetch from tenant DB
+    let data = null;
+    if (req.user.agentId) {
+      const RepoAgent = getRepoAgentModel(tenantConnection);
+      const agent = await RepoAgent.findById(req.user.agentId).lean();
+      if (!agent) return res.status(404).json({ success: false, message: 'Agent not found' });
+      data = {
+        id: String(agent._id),
+        name: agent.name,
+        email: agent.email,
+        phoneNumber: agent.phoneNumber,
+        role: agent.role,
+        status: agent.status,
+        tenantName: tenant.name,
+        agentId: agent.agentId,
+        agentCode: agent.agentCode
+      };
+    } else if (req.user.staffId) {
+      const OfficeStaff = getOfficeStaffModel(tenantConnection);
+      const staff = await OfficeStaff.findById(req.user.staffId).lean();
+      if (!staff) return res.status(404).json({ success: false, message: 'Staff not found' });
+      data = {
+        id: String(staff._id),
+        name: staff.name,
+        email: staff.email,
+        phoneNumber: staff.phoneNumber,
+        role: staff.role,
+        status: staff.status,
+        tenantName: tenant.name,
+        staffId: staff.staffId,
+        staffCode: staff.staffCode
+      };
+    } else {
+      return res.status(400).json({ success: false, message: 'Unsupported user type' });
+    }
+
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching current user profile:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch profile' });
+  }
+});
+
 // All routes below require authentication and admin role
 router.use(authenticateUnifiedToken, requireAdmin);
 

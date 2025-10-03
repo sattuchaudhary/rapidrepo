@@ -2,10 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, StatusBar, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
+import { maskPhoneNumber } from '../utils/format';
 
 export default function IDCardScreen({ navigation }) {
   const [agent, setAgent] = useState(null);
   const [loading, setLoading] = useState(true);
+  const displayedId = agent?.agentCode || agent?.staffCode || agent?.agentId || agent?.staffId || agent?._id || agent?.id || agent?.userId || '—';
 
   useEffect(() => {
     (async () => {
@@ -58,7 +60,7 @@ export default function IDCardScreen({ navigation }) {
 
         <View style={styles.detailsWrap}>
           <Text style={styles.personName} numberOfLines={1}>{agent?.name || '—'}</Text>
-          <Text style={styles.personId} numberOfLines={1}>ID: {agent?._id || '—'}</Text>
+          <Text style={styles.personId} numberOfLines={1}>ID: {displayedId}</Text>
 
           <View style={styles.fieldRow}>
             <Text style={styles.fieldKey}>Organization</Text>
@@ -70,7 +72,7 @@ export default function IDCardScreen({ navigation }) {
           </View>
           <View style={styles.fieldRow}>
             <Text style={styles.fieldKey}>Phone</Text>
-            <Text style={styles.fieldVal} numberOfLines={1}>{agent?.phoneNumber || '—'}</Text>
+            <Text style={styles.fieldVal} numberOfLines={1}>{agent?.phoneNumber ? maskPhoneNumber(agent.phoneNumber) : '—'}</Text>
           </View>
         </View>
 

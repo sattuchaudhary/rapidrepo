@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { StyleSheet, View, Text, FlatList, ActivityIndicator, Modal, TouchableOpacity, TextInput, StatusBar, ScrollView, InteractionManager, useColorScheme, Animated, Appearance, Keyboard, Linking, Alert } from 'react-native';
+import { StyleSheet, View, Text, FlatList, ActivityIndicator, Modal, TouchableOpacity, TextInput, StatusBar, ScrollView, InteractionManager, useColorScheme, Animated, Appearance, Keyboard, Linking, Alert, Share, Platform } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
@@ -61,8 +61,6 @@ export default function SearchResultsScreen({ route, navigation }) {
   const [fieldMapping, setFieldMapping] = useState(null);
   const [agencyConfirmers, setAgencyConfirmers] = useState([]);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [whatsappType, setWhatsappType] = useState('normal'); // 'normal' or 'business'
-  const [showWhatsappTypeModal, setShowWhatsappTypeModal] = useState(false);
   const chassisInputRef = useRef(null);
   const regSuffixInputRef = useRef(null);
   
@@ -261,26 +259,72 @@ export default function SearchResultsScreen({ route, navigation }) {
     }
   }, [isRepoAgent]);
 
-  // Helper: send WhatsApp message
+  // Helper: build WhatsApp vehicle text (shared across actions)
+  const buildVehicleWhatsAppText = useCallback((veh) => {
+    const fm = fieldMapping || {};
+    const getFieldValue = (value, key) => {
+      if (fm[key] === false) return 'N/A';
+      return value || '—';
+    };
+    try {
+      let text = '🚗 *Vehicle Details*\n\n';
+      text += `👤 *Name:* ${getFieldValue(veh.customerName, 'customerName')}\n`;
+      text += `🔢 *Vehicle:* ${getFieldValue(veh.regNo, 'regNo')}\n`;
+      text += `🔧 *Chassis:* ${getFieldValue(veh.chassisNo, 'chassisNo')}\n`;
+      text += `⚙️ *Engine:* ${getFieldValue(veh.engineNo, 'engineNo')}\n`;
+      text += `🏭 *Make:* ${getFieldValue(veh.make, 'make')}\n`;
+      text += `🚘 *Model:* ${getFieldValue(veh.model, 'model')}\n`;
+      return text;
+    } catch (_) {
+      return 'Vehicle details';
+    }
+  }, [fieldMapping]);
+
+  // Helper: send WhatsApp message to a specific number with chooser each time
   const sendWhatsAppMessage = useCallback(async (phoneNumber, message) => {
     try {
-      // Clean phone number (remove spaces, dashes, etc.)
-      const cleanNumber = phoneNumber.replace(/[^\d]/g, '');
-      
-      // Add country code if not present
+      const cleanNumber = String(phoneNumber || '').replace(/[^\d]/g, '');
       const formattedNumber = cleanNumber.startsWith('91') ? cleanNumber : `91${cleanNumber}`;
-      
-      // Choose WhatsApp URL based on type
-      const whatsappUrl = whatsappType === 'business' 
-        ? `whatsapp://send?phone=${formattedNumber}&text=${encodeURIComponent(message)}`
-        : `whatsapp://send?phone=${formattedNumber}&text=${encodeURIComponent(message)}`;
-      
-      // Try to open WhatsApp
-      const canOpen = await Linking.canOpenURL(whatsappUrl);
-      if (canOpen) {
-        await Linking.openURL(whatsappUrl);
+
+      if (Platform.OS === 'android') {
+        // Probe known WhatsApp packages
+        const candidates = [
+          { label: 'WhatsApp', pkg: 'com.whatsapp' },
+          { label: 'WhatsApp Business', pkg: 'com.whatsapp.w4b' }
+        ];
+
+        const available = [];
+        for (const c of candidates) {
+          const intentUrl = `intent://send?phone=${formattedNumber}&text=${encodeURIComponent(message)}#Intent;scheme=whatsapp;package=${c.pkg};end`;
+          try {
+            const ok = await Linking.canOpenURL(intentUrl);
+            if (ok) available.push({ ...c, intentUrl });
+          } catch (_) {}
+        }
+
+        if (available.length === 0) {
+          // Fallback to wa.me link (browser)
+          const webUrl = `https://wa.me/${formattedNumber}?text=${encodeURIComponent(message)}`;
+          await Linking.openURL(webUrl);
+          return;
+        }
+
+        // Show chooser via Alert (simple list)
+        const buttons = available.map((app) => ({
+          text: app.label,
+          onPress: () => Linking.openURL(app.intentUrl).catch(() => {})
+        }));
+        buttons.push({ text: 'Cancel', style: 'cancel' });
+        Alert.alert('Send with', 'Choose WhatsApp app', buttons, { cancelable: true });
+        return;
+      }
+
+      // iOS: single WhatsApp app expected
+      const url = `whatsapp://send?phone=${formattedNumber}&text=${encodeURIComponent(message)}`;
+      const can = await Linking.canOpenURL(url);
+      if (can) {
+        await Linking.openURL(url);
       } else {
-        // Fallback to web WhatsApp
         const webUrl = `https://wa.me/${formattedNumber}?text=${encodeURIComponent(message)}`;
         await Linking.openURL(webUrl);
       }
@@ -288,28 +332,6 @@ export default function SearchResultsScreen({ route, navigation }) {
       console.error('Error sending WhatsApp message:', error);
       Alert.alert('Error', 'Could not open WhatsApp. Please make sure WhatsApp is installed.');
     }
-  }, [whatsappType]);
-
-  // Helper: show WhatsApp type selection
-  const showWhatsAppTypeSelection = useCallback(() => {
-    Alert.alert(
-      'Select WhatsApp Type',
-      'Choose which WhatsApp to use for messaging:',
-      [
-        {
-          text: 'Normal WhatsApp',
-          onPress: () => setWhatsappType('normal')
-        },
-        {
-          text: 'Business WhatsApp',
-          onPress: () => setWhatsappType('business')
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        }
-      ]
-    );
   }, []);
 
   const runSearch = async (qVal, type, showLoading = false, clearInputsAfter = false) => {
@@ -877,8 +899,8 @@ export default function SearchResultsScreen({ route, navigation }) {
                                 <TouchableOpacity 
                                   style={styles.whatsappIcon}
                                   onPress={() => {
-                                    const message = `Hello ${confirmer.name || 'Sir/Madam'}, I need to discuss about vehicle confirmation.`;
-                                    sendWhatsAppMessage(confirmer.phoneNumber, message);
+                                    const text = buildVehicleWhatsAppText(detail || {});
+                                    sendWhatsAppMessage(confirmer.phoneNumber, text);
                                   }}
                                 >
                                   <Text style={styles.whatsappIconText}>💬</Text>
@@ -898,40 +920,9 @@ export default function SearchResultsScreen({ route, navigation }) {
 
                     {/* Action: WhatsApp share (dynamic fields based on mapping) */}
                     <View style={styles.actionSection}>
-                      {/* WhatsApp Type Selection Button */}
-                      <TouchableOpacity 
-                        style={[styles.whatsappTypeBtn, { backgroundColor: isDark ? '#1f2937' : '#F3F4F6' }]} 
-                        onPress={showWhatsAppTypeSelection}
-                      >
-                        <Text style={[styles.whatsappTypeBtnText, { color: theme.textPrimary }]}>
-                          📱 {whatsappType === 'business' ? 'Business WhatsApp' : 'Normal WhatsApp'} ▼
-                        </Text>
-                      </TouchableOpacity>
-                      
                       <TouchableOpacity style={styles.whatsBtn} onPress={async () => {
                         try {
-                          const fm = fieldMapping || {};
-                          const buildWhatsAppText = () => {
-                            let text = '🚗 *Vehicle Details*\n\n';
-                            
-                            // Helper function to get field value or N/A
-                            const getFieldValue = (value, key) => {
-                              if (fm[key] === false) return 'N/A';
-                              return value || '—';
-                            };
-                            
-                            // Only send required fields
-                            text += `👤 *Name:* ${getFieldValue(detail.customerName, 'customerName')}\n`;
-                            text += `🔢 *Vehicle:* ${getFieldValue(detail.regNo, 'regNo')}\n`;
-                            text += `🔧 *Chassis:* ${getFieldValue(detail.chassisNo, 'chassisNo')}\n`;
-                            text += `⚙️ *Engine:* ${getFieldValue(detail.engineNo, 'engineNo')}\n`;
-                            text += `🏭 *Make:* ${getFieldValue(detail.make, 'make')}\n`;
-                            text += `🚘 *Model:* ${getFieldValue(detail.model, 'model')}\n`;
-                            
-                            return text;
-                          };
-                          
-                          const text = buildWhatsAppText();
+                          const text = buildVehicleWhatsAppText(detail);
                           const token = await SecureStore.getItemAsync('token');
                           // Fire-and-forget share history
                           axios.post(`${getBaseURL()}/api/history/share`, {
@@ -942,19 +933,10 @@ export default function SearchResultsScreen({ route, navigation }) {
                             metadata: { regNo: detail.regNo || '', chassisNo: detail.chassisNo || '' }
                           }, { headers: { Authorization: `Bearer ${token}` } }).catch(()=>{});
 
-                          // Use the selected WhatsApp type
-                          const whatsappUrl = whatsappType === 'business' 
-                            ? `whatsapp://send?text=${encodeURIComponent(text)}`
-                            : `whatsapp://send?text=${encodeURIComponent(text)}`;
-                          
-                          const canOpen = await Linking.canOpenURL(whatsappUrl);
-                          if (canOpen) {
-                            await Linking.openURL(whatsappUrl);
-                          } else {
-                            // Fallback to web WhatsApp
-                            const webUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
-                            await Linking.openURL(webUrl);
-                          }
+                          const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
+                          const canOpen = await Linking.canOpenURL(url);
+                          if (canOpen) await Linking.openURL(url);
+                          else await Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`);
                         } catch (_) {}
                       }}>
                         <Text style={styles.whatsBtnText}>📱 Share on WhatsApp</Text>
@@ -1042,8 +1024,8 @@ export default function SearchResultsScreen({ route, navigation }) {
                                 <TouchableOpacity 
                                   style={styles.whatsappIcon}
                                   onPress={() => {
-                                    const message = `Hello ${detail.firstConfirmerName || 'Sir/Madam'}, I need to discuss about vehicle confirmation.`;
-                                    sendWhatsAppMessage(detail.firstConfirmerPhone, message);
+                                    const text = buildVehicleWhatsAppText(detail || {});
+                                    sendWhatsAppMessage(detail.firstConfirmerPhone, text);
                                   }}
                                 >
                                   <Text style={styles.whatsappIconText}>💬</Text>
@@ -1071,8 +1053,8 @@ export default function SearchResultsScreen({ route, navigation }) {
                                 <TouchableOpacity 
                                   style={styles.whatsappIcon}
                                   onPress={() => {
-                                    const message = `Hello ${detail.secondConfirmerName || 'Sir/Madam'}, I need to discuss about vehicle confirmation.`;
-                                    sendWhatsAppMessage(detail.secondConfirmerPhone, message);
+                                    const text = buildVehicleWhatsAppText(detail || {});
+                                    sendWhatsAppMessage(detail.secondConfirmerPhone, text);
                                   }}
                                 >
                                   <Text style={styles.whatsappIconText}>💬</Text>
@@ -1100,8 +1082,8 @@ export default function SearchResultsScreen({ route, navigation }) {
                                 <TouchableOpacity 
                                   style={styles.whatsappIcon}
                                   onPress={() => {
-                                    const message = `Hello ${detail.thirdConfirmerName || 'Sir/Madam'}, I need to discuss about vehicle confirmation.`;
-                                    sendWhatsAppMessage(detail.thirdConfirmerPhone, message);
+                                    const text = buildVehicleWhatsAppText(detail || {});
+                                    sendWhatsAppMessage(detail.thirdConfirmerPhone, text);
                                   }}
                                 >
                                   <Text style={styles.whatsappIconText}>💬</Text>
@@ -1131,19 +1113,9 @@ export default function SearchResultsScreen({ route, navigation }) {
                         </Text>
                       </TouchableOpacity>
                       
-                      {/* WhatsApp Type Selection Button */}
-                      <TouchableOpacity 
-                        style={[styles.whatsappTypeBtn, { backgroundColor: isDark ? '#1f2937' : '#F3F4F6' }]} 
-                        onPress={showWhatsAppTypeSelection}
-                      >
-                        <Text style={[styles.whatsappTypeBtnText, { color: theme.textPrimary }]}>
-                          📱 {whatsappType === 'business' ? 'Business WhatsApp' : 'Normal WhatsApp'} ▼
-                        </Text>
-                      </TouchableOpacity>
-                      
                       <TouchableOpacity style={styles.whatsBtn} onPress={async () => {
                         try {
-                          const text = `🚗 *Vehicle Details*\n\n👤 *Name:* ${detail.customerName || '—'}\n🔢 *Vehicle:* ${detail.regNo || '—'}\n🔧 *Chassis:* ${detail.chassisNo || '—'}\n⚙️ *Engine:* ${detail.engineNo || '—'}\n🏭 *Make:* ${detail.make || '—'}\n🚘 *Model:* ${detail.model || '—'}`;
+                          const text = buildVehicleWhatsAppText(detail);
                           const token = await SecureStore.getItemAsync('token');
                           // Fire-and-forget share history
                           axios.post(`${getBaseURL()}/api/history/share`, {
@@ -1154,19 +1126,10 @@ export default function SearchResultsScreen({ route, navigation }) {
                             metadata: { regNo: detail.regNo || '', chassisNo: detail.chassisNo || '' }
                           }, { headers: { Authorization: `Bearer ${token}` } }).catch(()=>{});
 
-                          // Use the selected WhatsApp type
-                          const whatsappUrl = whatsappType === 'business' 
-                            ? `whatsapp://send?text=${encodeURIComponent(text)}`
-                            : `whatsapp://send?text=${encodeURIComponent(text)}`;
-                          
-                          const canOpen = await Linking.canOpenURL(whatsappUrl);
-                          if (canOpen) {
-                            await Linking.openURL(whatsappUrl);
-                          } else {
-                            // Fallback to web WhatsApp
-                            const webUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
-                            await Linking.openURL(webUrl);
-                          }
+                          const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
+                          const canOpen = await Linking.canOpenURL(url);
+                          if (canOpen) await Linking.openURL(url);
+                          else await Linking.openURL(`https://wa.me/?text=${encodeURIComponent(text)}`);
                         } catch (_) {}
                       }}>
                         <Text style={styles.whatsBtnText}>📱 Share on WhatsApp</Text>
@@ -1238,8 +1201,7 @@ const styles = StyleSheet.create({
   ,segTextActive: { color: '#fff' }
   ,whatsappIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#25D366', alignItems: 'center', justifyContent: 'center', marginLeft: 10 }
   ,whatsappIconText: { fontSize: 16, color: '#fff' }
-  ,whatsappTypeBtn: { borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, alignItems: 'center', marginBottom: 8, borderWidth: 1, borderColor: '#E5E7EB' }
-  ,whatsappTypeBtnText: { fontWeight: '600', fontSize: 14 }
+  
   // Loading skeleton styles
   ,loadingSkeleton: { flex: 1, paddingVertical: 8 }
   ,skeletonItem: { 
