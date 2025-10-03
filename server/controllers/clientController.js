@@ -107,23 +107,37 @@ const clientController = {
       const tenantDbName = `tenants_${tenant.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
       const tenantDb = mongoose.connection.useDb(tenantDbName);
       
-      const clients = await tenantDb.collection('clientmanagement')
+      const pageNum = parseInt(page) || 1;
+      const requestedLimit = req.query.limit;
+      const isFetchAll = requestedLimit === 'all' || parseInt(requestedLimit) === 0;
+
+      let cursor = tenantDb.collection('clientmanagement')
         .find({})
-        .sort({ createdOn: -1 })
-        .skip((page - 1) * limit)
-        .limit(parseInt(limit))
-        .toArray();
+        .sort({ createdOn: -1 });
+
+      if (!isFetchAll) {
+        const limitNum = parseInt(limit) || 10;
+        cursor = cursor
+          .skip((pageNum - 1) * limitNum)
+          .limit(limitNum);
+      }
+
+      const clients = await cursor.toArray();
       
       const total = await tenantDb.collection('clientmanagement').countDocuments({});
       
+      const effectiveLimit = isFetchAll ? total : (parseInt(limit) || 10);
+      const effectivePage = isFetchAll ? 1 : pageNum;
+      const totalPages = isFetchAll ? 1 : Math.ceil(total / effectiveLimit);
+
       res.json({
         success: true,
         data: clients,
         pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
+          page: effectivePage,
+          limit: effectiveLimit,
           total,
-          pages: Math.ceil(total / limit)
+          pages: totalPages
         }
       });
       
