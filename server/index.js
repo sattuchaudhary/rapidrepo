@@ -270,10 +270,10 @@ app.use('/api/history', historyRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/tenants', tenantRoutes);
 // Tenant-specific routes (must come before /api/tenant to avoid conflicts)
-app.use('/api/tenant/clients', authenticateUnifiedToken, requireActiveSubscription, require('./routes/client'));
-app.use('/api/tenant/users', authenticateUnifiedToken, requireActiveSubscription, require('./routes/tenantUsers'));
-app.use('/api/tenant/mobile', authenticateUnifiedToken, requireActiveSubscription, require('./routes/mobileUpload'));
-app.use('/api/tenant/data', authenticateUnifiedToken, requireActiveSubscription, require('./routes/fileManagement'));
+app.use('/api/tenant/clients', require('./routes/client'));
+app.use('/api/tenant/users', require('./routes/tenantUsers'));
+app.use('/api/tenant/mobile', require('./routes/mobileUpload'));
+app.use('/api/tenant/data', require('./routes/fileManagement'));
 app.use('/api/tenant', tenantRoutes); // Add singular route for tenant-specific endpoints
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/bulk-download', require('./routes/bulkDownload'));
