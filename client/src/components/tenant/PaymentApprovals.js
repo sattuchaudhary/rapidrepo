@@ -24,11 +24,11 @@ const PaymentApprovals = () => {
 
   useEffect(() => { load(); }, []);
 
-  const approve = async (id) => {
+  const approve = async (id, mobileUserId) => {
     try {
       setSuccess(''); setError('');
       const token = localStorage.getItem('token');
-      await axios.post(`/api/payments/${id}/approve`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`/api/payments/${id}/approve`, { mobileUserId }, { headers: { Authorization: `Bearer ${token}` } });
       setSuccess('Payment approved');
       load();
     } catch (e) {
@@ -78,7 +78,7 @@ const PaymentApprovals = () => {
                   <TableCell>{p.transactionId}</TableCell>
                   <TableCell>{p.status}</TableCell>
                   <TableCell>
-                    <Button size="small" variant="contained" color="success" onClick={() => approve(p._id)} sx={{ mr: 1 }}>Approve</Button>
+                    <Button size="small" variant="contained" color="success" onClick={() => approve(p._id, p.submittedByMobileId)} sx={{ mr: 1 }}>Approve</Button>
                     <Button size="small" variant="outlined" color="error" onClick={() => reject(p._id)}>Reject</Button>
                   </TableCell>
                 </TableRow>
