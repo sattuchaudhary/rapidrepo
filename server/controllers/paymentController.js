@@ -93,7 +93,7 @@ const approvePayment = async (req, res) => {
     payment.status = 'approved';
     payment.approvedBy = req.user?._id || req.user?.userId;
     payment.approvedAt = new Date();
-    payment.effectiveStart = base;
+    payment.effectiveStart = baseDate;
     payment.effectiveEnd = newEnd;
     await payment.save();
 
