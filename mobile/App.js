@@ -203,7 +203,7 @@ export default function App() {
           <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: true, title: 'Sync Settings' }} />
           <Stack.Screen name="OfflineData" component={OfflineDataBrowser} options={{ headerShown: true, title: 'Offline Data' }} />
           <Stack.Screen name="JSONExport" component={JSONExportScreen} options={{ headerShown: true, title: 'Export JSON' }} />
-          <Stack.Screen name="Payment" component={PaymentScreen} options={{ headerShown: true, title: 'Subscription Payment' }} />
+          <Stack.Screen name="Payment" component={PaymentScreen} options={{ headerShown: false }} />
         </Stack.Navigator>
       )}
       <GlobalSyncOverlay />

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, StatusBar, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, StatusBar, Image, Modal, Share } from 'react-native';
+import { Linking, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
@@ -17,6 +18,7 @@ export default function PaymentScreen({ navigation }) {
   const [qrUrl, setQrUrl] = useState('');
   const [instructions, setInstructions] = useState('');
   const [planPrices, setPlanPrices] = useState({});
+  const [qrVisible, setQrVisible] = useState(false);
 
   const fetchRemaining = async () => {
     try {
@@ -44,7 +46,9 @@ export default function PaymentScreen({ navigation }) {
         const cfg = res?.data?.data?.paymentConfig || {};
         setUpiId(cfg.upiId || '');
         setPayeeName(cfg.payeeName || '');
-        setQrUrl(cfg.qrCodeImageUrl || '');
+        const rawQr = cfg.qrCodeImageUrl || '';
+        const absoluteQr = normalizeQrUrl(rawQr);
+        setQrUrl(absoluteQr);
         setInstructions(cfg.instructions || '');
         setPlanPrices(cfg.planPrices || {});
         const defaultPrice = cfg.planPrices?.[planPeriod];
@@ -81,6 +85,44 @@ export default function PaymentScreen({ navigation }) {
     }
   };
 
+  const normalizeQrUrl = (url) => {
+    if (!url) return '';
+    // Server relative path -> prefix base URL
+    if (url.startsWith('/')) return `${getBaseURL()}${url}`;
+    // Google Drive share links -> convert to direct view link
+    // Formats: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
+    // or https://drive.google.com/open?id=FILE_ID
+    try {
+      if (url.includes('drive.google.com')) {
+        let id = '';
+        const m1 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        const m2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        id = (m1 && m1[1]) || (m2 && m2[1]) || '';
+        if (id) return `https://drive.google.com/uc?export=view&id=${id}`;
+      }
+    } catch (_) {}
+    return url;
+  };
+
+  const copyUpi = async () => {
+    if (!upiId) return;
+    try {
+      await Share.share({ message: upiId });
+    } catch (_) {}
+  };
+
+  const openUpiIntent = () => {
+    if (!upiId) { Alert.alert('Missing UPI', 'UPI ID is not configured'); return; }
+    const amt = amount && Number(amount) > 0 ? Number(amount).toFixed(2) : '';
+    const note = notes ? encodeURIComponent(notes) : encodeURIComponent('RapidRepo Subscription');
+    const pn = encodeURIComponent(payeeName || '');
+    const pa = encodeURIComponent(upiId);
+    const url = `upi://pay?pa=${pa}&pn=${pn}${amt ? `&am=${amt}` : ''}&tn=${note}`;
+    Linking.openURL(url).catch(() => {
+      Alert.alert('UPI App Not Found', 'Install any UPI app (GPay/PhonePe/Paytm) and try again.');
+    });
+  };
+
   const PlanButton = ({ value, label }) => (
     <TouchableOpacity
       style={[styles.planBtn, planPeriod === value && styles.planBtnActive]}
@@ -106,22 +148,39 @@ export default function PaymentScreen({ navigation }) {
         <View style={{ width: 20 }} />
       </View>
 
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
       <View style={styles.card}>
         {!!qrUrl && (
           <View style={{ alignItems: 'center', marginBottom: 12 }}>
-            <Image source={{ uri: qrUrl }} style={{ width: 180, height: 180, borderRadius: 12 }} resizeMode="contain" />
+            <TouchableOpacity onPress={() => setQrVisible(true)} activeOpacity={0.8}>
+              <Image 
+                source={{ uri: qrUrl }} 
+                style={{ width: 180, height: 180, borderRadius: 12 }} 
+                resizeMode="contain"
+                onError={() => setQrUrl('')}
+              />
+            </TouchableOpacity>
+            <Text style={[styles.helper, { marginTop: 6 }]}>Tap to enlarge QR</Text>
           </View>
         )}
         {!!payeeName && <Text style={styles.helper}>Payee: {payeeName}</Text>}
-        {!!upiId && <Text style={styles.helper}>UPI ID: {upiId}</Text>}
+        {!!upiId && (
+          <View style={{ marginBottom: 8 }}>
+            <Text selectable style={styles.helper}>UPI ID: {upiId}</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
+              <TouchableOpacity style={styles.smallBtn} onPress={copyUpi}><Text style={styles.smallBtnText}>Copy UPI</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.smallBtn} onPress={openUpiIntent}><Text style={styles.smallBtnText}>Pay in UPI App</Text></TouchableOpacity>
+            </View>
+          </View>
+        )}
         {!!instructions && <Text style={styles.helper}>{instructions}</Text>}
 
         <Text style={styles.sectionTitle}>Choose Plan</Text>
         <View style={styles.planRow}>
-          <PlanButton value="weekly" label="Weekly" />
-          <PlanButton value="monthly" label="Monthly" />
-          <PlanButton value="quarterly" label="Quarterly" />
-          <PlanButton value="yearly" label="Yearly" />
+          <PlanButton value="weekly" label={`Weekly${planPrices.weekly!=null?` • ₹${planPrices.weekly}`:''}`} />
+          <PlanButton value="monthly" label={`Monthly${planPrices.monthly!=null?` • ₹${planPrices.monthly}`:''}`} />
+          <PlanButton value="quarterly" label={`Quarterly${planPrices.quarterly!=null?` • ₹${planPrices.quarterly}`:''}`} />
+          <PlanButton value="yearly" label={`Yearly${planPrices.yearly!=null?` • ₹${planPrices.yearly}`:''}`} />
         </View>
 
         <Text style={styles.label}>Amount</Text>
@@ -145,10 +204,28 @@ export default function PaymentScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
+      {/* QR Fullscreen Modal */}
+      <Modal visible={qrVisible} transparent animationType="fade" onRequestClose={() => setQrVisible(false)}>
+        <View style={styles.modalWrap}>
+          <TouchableOpacity style={styles.modalBackdrop} onPress={() => setQrVisible(false)} />
+          <View style={styles.modalCard}>
+            {qrUrl ? (
+              <Image source={{ uri: qrUrl }} style={{ width: 280, height: 280, borderRadius: 16 }} resizeMode="contain" />
+            ) : (
+              <Text style={{ color: '#fff' }}>QR not available</Text>
+            )}
+            <TouchableOpacity style={[styles.smallBtn, { marginTop: 12 }]} onPress={() => setQrVisible(false)}>
+              <Text style={styles.smallBtnText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <View style={styles.info}>
         <Text style={styles.infoText}>Current status: {subRemaining && subRemaining > 0 ? `Active • ends ${subEnd ? subEnd.toLocaleDateString() : ''} (${formatRemaining()} left)` : 'Expired'}</Text>
         <TouchableOpacity onPress={fetchRemaining}><Text style={styles.refresh}>Refresh</Text></TouchableOpacity>
       </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -172,7 +249,17 @@ const styles = StyleSheet.create({
   info: { alignItems: 'center', marginTop: 12 },
   infoText: { color: '#9CA3AF' },
   refresh: { color: '#60A5FA', marginTop: 6 },
-  helper: { color: '#9CA3AF', marginBottom: 6 }
+  helper: { color: '#9CA3AF', marginBottom: 6 },
+  scrollContent: { paddingBottom: 32 }
+});
+
+// Extend styles for modal and small buttons
+Object.assign(styles, {
+  smallBtn: { backgroundColor: '#334155', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 },
+  smallBtnText: { color: '#e5e7eb', fontWeight: '700' },
+  modalWrap: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', alignItems: 'center', justifyContent: 'center' },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject },
+  modalCard: { backgroundColor: '#111827', padding: 16, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: '#374151' }
 });
 
 

@@ -1,4 +1,5 @@
 const Tenant = require('../models/Tenant');
+const UserSubscription = require('../models/UserSubscription');
 
 // Enforce active subscription for tenant-bound users (mobile and admin except super_admin)
 const requireActiveSubscription = async (req, res, next) => {
@@ -7,19 +8,14 @@ const requireActiveSubscription = async (req, res, next) => {
     if (!tenantId) {
       return res.status(400).json({ success: false, message: 'Tenant context required' });
     }
-    const tenant = await Tenant.findById(tenantId).select('subscription isActive');
-    if (!tenant || !tenant.isActive) {
-      return res.status(403).json({ success: false, message: 'Tenant inactive' });
-    }
-    const { subscription } = tenant;
     const now = new Date();
-    const end = subscription?.endDate ? new Date(subscription.endDate) : null;
-    if (!end || end < now) {
-      return res.status(402).json({
-        success: false,
-        code: 'SUBSCRIPTION_EXPIRED',
-        message: 'Subscription expired. Please renew to continue.'
-      });
+    // Per-user subscription check for mobile users; fallback to tenant-wide if desired
+    const mobileUserId = req.user?.agentId || req.user?.staffId || req.user?.userId;
+    if (mobileUserId) {
+      const userSub = await UserSubscription.findOne({ tenantId, mobileUserId }).select('endDate');
+      if (!userSub || !userSub.endDate || new Date(userSub.endDate) < now) {
+        return res.status(402).json({ success: false, code: 'SUBSCRIPTION_EXPIRED', message: 'Your subscription expired. Please renew.' });
+      }
     }
     next();
   } catch (err) {

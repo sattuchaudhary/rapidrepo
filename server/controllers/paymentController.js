@@ -1,5 +1,6 @@
 const Tenant = require('../models/Tenant');
 const Payment = require('../models/Payment');
+const UserSubscription = require('../models/UserSubscription');
 
 // User submits a payment proof (repo agent / office staff / admin)
 const submitPayment = async (req, res) => {
@@ -61,8 +62,9 @@ const approvePayment = async (req, res) => {
     if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
 
     const now = new Date();
-    const currentEnd = tenant.subscription?.endDate ? new Date(tenant.subscription.endDate) : now;
-    const base = currentEnd > now ? currentEnd : now;
+    // Determine mobile user id for per-user extension
+    const mobileUserId = req.body.mobileUserId || req.user?.agentId || req.user?.staffId || req.user?.userId;
+    const userType = req.user?.userType || 'repo_agent';
 
     const periodDaysMap = {
       weekly: 7,
@@ -72,15 +74,17 @@ const approvePayment = async (req, res) => {
     };
     const daysToAdd = periodDaysMap[payment.planPeriod] || 30;
 
-    const newEnd = new Date(base);
+    const baseSub = await UserSubscription.findOne({ tenantId: payment.tenantId, mobileUserId });
+    const baseDate = baseSub?.endDate && new Date(baseSub.endDate) > now ? new Date(baseSub.endDate) : now;
+    const newEnd = new Date(baseDate);
     newEnd.setDate(newEnd.getDate() + daysToAdd);
 
-    tenant.subscription = {
-      ...tenant.subscription,
-      startDate: tenant.subscription?.startDate || now,
-      endDate: newEnd
-    };
-    await tenant.save();
+    // Upsert per-user subscription
+    await UserSubscription.findOneAndUpdate(
+      { tenantId: payment.tenantId, mobileUserId },
+      { tenantId: payment.tenantId, mobileUserId, userType, startDate: baseSub?.startDate || now, endDate: newEnd, lastPaymentId: payment._id },
+      { upsert: true, new: true }
+    );
 
     payment.status = 'approved';
     payment.approvedBy = req.user?._id || req.user?.userId;
@@ -89,7 +93,7 @@ const approvePayment = async (req, res) => {
     payment.effectiveEnd = newEnd;
     await payment.save();
 
-    return res.json({ success: true, message: 'Payment approved and subscription extended', data: { payment, tenant } });
+    return res.json({ success: true, message: 'Payment approved and user subscription extended', data: { payment, user: { id: mobileUserId, endDate: newEnd } } });
   } catch (err) {
     console.error('approvePayment error:', err);
     return res.status(500).json({ success: false, message: 'Internal server error' });
