@@ -71,6 +71,7 @@ import TenantProfile from './TenantProfile';
 import TenantSettings from './TenantSettings';
 import PaymentSettings from './PaymentSettings';
 import PaymentApprovals from './PaymentApprovals';
+import SubscriptionsList from './SubscriptionsList';
 import ModernDashboard from './ModernDashboard';
 
 const TenantAdminPanel = () => {
@@ -218,6 +219,12 @@ const TenantAdminPanel = () => {
       icon: <SettingsIcon />,
       path: '/app/tenant/payment-approvals',
       active: location.pathname === '/app/tenant/payment-approvals'
+    },
+    {
+      text: 'User Subscriptions',
+      icon: <SettingsIcon />,
+      path: '/app/tenant/subscriptions',
+      active: location.pathname === '/app/tenant/subscriptions'
     },
     {
       text: 'Profile',
@@ -623,6 +630,9 @@ const TenantAdminPanel = () => {
           )}
           {location.pathname === '/app/tenant/payment-approvals' && (
             <PaymentApprovals />
+          )}
+          {location.pathname === '/app/tenant/subscriptions' && (
+            <SubscriptionsList />
           )}
           
           {/* Fallback for unmatched routes */}

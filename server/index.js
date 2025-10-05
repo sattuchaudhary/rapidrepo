@@ -278,6 +278,7 @@ app.use('/api/tenant', tenantRoutes); // Add singular route for tenant-specific 
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/bulk-download', require('./routes/bulkDownload'));
 app.use('/api/uploads', require('./routes/uploads'));
+app.use('/api/subscriptions', require('./routes/subscriptions'));
 // Static hosting for uploaded files
 app.use('/uploads', (req, res, next) => {
   res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');

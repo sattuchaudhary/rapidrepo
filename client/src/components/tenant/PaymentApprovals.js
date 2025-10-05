@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, Card, CardContent, Button, Alert, Table, TableBody, TableCell, TableHead, TableRow } from '@mui/material';
+import { Box, Typography, Card, CardContent, Button, Alert, Table, TableBody, TableCell, TableHead, TableRow, Chip } from '@mui/material';
 import axios from 'axios';
 
 const PaymentApprovals = () => {
@@ -60,6 +60,7 @@ const PaymentApprovals = () => {
             <TableHead>
               <TableRow>
                 <TableCell>Date</TableCell>
+                <TableCell>Mobile User ID</TableCell>
                 <TableCell>Plan</TableCell>
                 <TableCell>Amount</TableCell>
                 <TableCell>Txn ID</TableCell>
@@ -71,6 +72,7 @@ const PaymentApprovals = () => {
               {items.map(p => (
                 <TableRow key={p._id}>
                   <TableCell>{new Date(p.createdAt).toLocaleString()}</TableCell>
+                  <TableCell>{p.submittedByMobileId || '-'}</TableCell>
                   <TableCell>{p.planPeriod}</TableCell>
                   <TableCell>{p.amount}</TableCell>
                   <TableCell>{p.transactionId}</TableCell>

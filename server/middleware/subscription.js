@@ -24,16 +24,22 @@ const requireActiveSubscription = async (req, res, next) => {
   }
 };
 
-// Public endpoint to fetch remaining time for current tenant
+// Public endpoint to fetch remaining time for current user (per-user), fallback to tenant if no user subscription exists
 const getRemainingTime = async (req, res) => {
   try {
     const tenantId = req.user?.tenantId || req.query.tenantId || req.body.tenantId;
-    if (!tenantId) {
-      return res.status(400).json({ success: false, message: 'tenantId required' });
-    }
-    const tenant = await require('../models/Tenant').findById(tenantId).select('subscription');
+    if (!tenantId) return res.status(400).json({ success: false, message: 'tenantId required' });
     const now = new Date();
-    const end = tenant?.subscription?.endDate ? new Date(tenant.subscription.endDate) : null;
+    const mobileUserId = req.user?.agentId || req.user?.staffId || req.user?.userId;
+    let end = null;
+    if (mobileUserId) {
+      const userSub = await UserSubscription.findOne({ tenantId, mobileUserId }).select('endDate');
+      end = userSub?.endDate ? new Date(userSub.endDate) : null;
+    }
+    if (!end) {
+      const tenant = await require('../models/Tenant').findById(tenantId).select('subscription');
+      end = tenant?.subscription?.endDate ? new Date(tenant.subscription.endDate) : null;
+    }
     const remainingMs = end ? Math.max(0, end - now) : 0;
     return res.json({ success: true, data: { endDate: end, remainingMs } });
   } catch (err) {
