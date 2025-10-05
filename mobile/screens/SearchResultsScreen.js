@@ -165,24 +165,26 @@ export default function SearchResultsScreen({ route, navigation }) {
   }, [modalSlideAnim, modalOpacityAnim]);
 
   const closeModal = useCallback(() => {
-    // ULTRA-FAST modal close with spring physics
-    Animated.parallel([
-      Animated.spring(modalSlideAnim, {
-        toValue: 300,
-        tension: 180, // slightly snappier than open, but still smooth
-        friction: 22,
-        useNativeDriver: true,
-      }),
-      Animated.timing(modalOpacityAnim, {
-        toValue: 0,
-        duration: 160,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setDetailOpen(false);
+    // INSTANT HIDE: close immediately to allow instant next input
+    setDetailOpen(false);
+
+    // Reset animation state synchronously (no waiting)
+    try {
+      modalSlideAnim.stopAnimation && modalSlideAnim.stopAnimation();
+      modalOpacityAnim.stopAnimation && modalOpacityAnim.stopAnimation();
+    } catch (_) {}
+    modalSlideAnim.setValue(300);
+    modalOpacityAnim.setValue(0);
+
+    // Defer heavy cleanup until after interactions to keep UI snappy
+    InteractionManager.runAfterInteractions(() => {
       setDetail(null);
     });
+
+    // Refocus registration input for instant next search
+    try {
+      regSuffixInputRef.current && regSuffixInputRef.current.focus();
+    } catch (_) {}
   }, [modalSlideAnim, modalOpacityAnim]);
 
   // Helper: log search click to server with robust error reporting
@@ -477,28 +479,14 @@ export default function SearchResultsScreen({ route, navigation }) {
         // Safety: ensure deduplication even for cached entries
         setResults(dedupeResults(cachedResults));
         
-        // SMOOTH CACHED RESULTS ANIMATION
-        setIsAnimating(true);
-        resultsFadeAnim.setValue(0);
-        resultsSlideAnim.setValue(30);
-        
-        Animated.parallel([
-          Animated.timing(resultsFadeAnim, {
-            toValue: 1,
-            duration: 150, // Faster for cached results
-            useNativeDriver: true,
-          }),
-          Animated.spring(resultsSlideAnim, {
-            toValue: 0,
-            tension: 250,
-            friction: 15,
-            useNativeDriver: true,
-          }),
-        ]).start(() => setIsAnimating(false));
+        // INSTANT RENDER: no animation to avoid blink
+        setIsAnimating(false);
+        resultsFadeAnim.setValue(1);
+        resultsSlideAnim.setValue(0);
         
         // SCROLL TO TOP when cached results are shown
         if (scrollViewRef.current) {
-          scrollViewRef.current.scrollTo({ y: 0, animated: true });
+          scrollViewRef.current.scrollTo({ y: 0, animated: false });
         }
         
         // Ensure inputs clear even when using cached results
@@ -564,28 +552,14 @@ export default function SearchResultsScreen({ route, navigation }) {
         
         setResults(unique);
         
-        // SMOOTH RESULTS ANIMATION
-        setIsAnimating(true);
-        resultsFadeAnim.setValue(0);
-        resultsSlideAnim.setValue(30);
-        
-        Animated.parallel([
-          Animated.timing(resultsFadeAnim, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-          Animated.spring(resultsSlideAnim, {
-            toValue: 0,
-            tension: 200,
-            friction: 20,
-            useNativeDriver: true,
-          }),
-        ]).start(() => setIsAnimating(false));
+        // INSTANT RENDER: no animation to avoid blink
+        setIsAnimating(false);
+        resultsFadeAnim.setValue(1);
+        resultsSlideAnim.setValue(0);
         
         // SCROLL TO TOP when new results arrive
         if (scrollViewRef.current) {
-          scrollViewRef.current.scrollTo({ y: 0, animated: true });
+          scrollViewRef.current.scrollTo({ y: 0, animated: false });
         }
         
         if (clearInputsAfter) {
@@ -670,28 +644,14 @@ export default function SearchResultsScreen({ route, navigation }) {
           
           setResults(unique);
           
-          // SMOOTH ONLINE RESULTS ANIMATION
-          setIsAnimating(true);
-          resultsFadeAnim.setValue(0);
-          resultsSlideAnim.setValue(30);
-          
-          Animated.parallel([
-            Animated.timing(resultsFadeAnim, {
-              toValue: 1,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-            Animated.spring(resultsSlideAnim, {
-              toValue: 0,
-              tension: 200,
-              friction: 20,
-              useNativeDriver: true,
-            }),
-          ]).start(() => setIsAnimating(false));
+          // INSTANT RENDER: no animation to avoid blink
+          setIsAnimating(false);
+          resultsFadeAnim.setValue(1);
+          resultsSlideAnim.setValue(0);
           
           // SCROLL TO TOP when new results arrive
           if (scrollViewRef.current) {
-            scrollViewRef.current.scrollTo({ y: 0, animated: true });
+            scrollViewRef.current.scrollTo({ y: 0, animated: false });
           }
           
           if (clearInputsAfter) {
@@ -731,28 +691,14 @@ export default function SearchResultsScreen({ route, navigation }) {
           }
           setResults(dedupeResults(rows || []));
           
-          // SMOOTH SQLITE RESULTS ANIMATION
-          setIsAnimating(true);
-          resultsFadeAnim.setValue(0);
-          resultsSlideAnim.setValue(30);
-          
-          Animated.parallel([
-            Animated.timing(resultsFadeAnim, {
-              toValue: 1,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-            Animated.spring(resultsSlideAnim, {
-              toValue: 0,
-              tension: 200,
-              friction: 20,
-              useNativeDriver: true,
-            }),
-          ]).start(() => setIsAnimating(false));
+          // INSTANT RENDER: no animation to avoid blink
+          setIsAnimating(false);
+          resultsFadeAnim.setValue(1);
+          resultsSlideAnim.setValue(0);
           
           // SCROLL TO TOP when new results arrive
           if (scrollViewRef.current) {
-            scrollViewRef.current.scrollTo({ y: 0, animated: true });
+            scrollViewRef.current.scrollTo({ y: 0, animated: false });
           }
           
           if (clearInputsAfter) {
@@ -1018,10 +964,8 @@ export default function SearchResultsScreen({ route, navigation }) {
       <Animated.View 
         style={[
           { flex: 1 },
-          {
-            opacity: fadeAnim,
-            transform: [{ translateX: slideAnim }]
-          }
+          // INSTANT screen render (no entrance animation) to avoid blink
+          { opacity: 1, transform: [{ translateX: 0 }] }
         ]}
       >
         <View style={styles.headerBar}>
@@ -1058,8 +1002,9 @@ export default function SearchResultsScreen({ route, navigation }) {
         <Animated.View 
           style={{ 
             flex: 1,
-            opacity: resultsFadeAnim,
-            transform: [{ translateY: resultsSlideAnim }]
+            // INSTANT results - no fade/slide to avoid blink
+            opacity: 1,
+            transform: [{ translateY: 0 }]
           }}
         >
           <ScrollView 

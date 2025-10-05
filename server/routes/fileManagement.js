@@ -204,6 +204,42 @@ router.post('/offline-snapshot/build', authenticateUnifiedToken, requireAdmin, a
 // Helper: escape user-provided strings for safe use in RegExp
 const escapeRegexSafe = (str) => String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// Helper: filter fields for repo agents based on tenant.fieldMapping
+function filterFieldsForUser(rawObj, fieldMapping, user) {
+  const userType = String(user?.userType || '').toLowerCase();
+  if (userType !== 'repo_agent') {
+    return rawObj;
+  }
+  const map = fieldMapping || {};
+  const out = {};
+  // Always include _id and vehicleType for navigation
+  out._id = rawObj._id;
+  out.vehicleType = rawObj.vehicleType;
+  // Conditionally include mapped fields
+  if (map.regNo) out.regNo = rawObj.regNo;
+  if (map.chassisNo) out.chassisNo = rawObj.chassisNo;
+  if (map.loanNo) out.loanNo = rawObj.loanNo;
+  if (map.bank) out.bank = rawObj.bank;
+  if (map.make) out.make = rawObj.make;
+  if (map.customerName) out.customerName = rawObj.customerName;
+  if (map.address && rawObj.address !== undefined) out.address = rawObj.address;
+  if (map.branch && rawObj.branch !== undefined) out.branch = rawObj.branch;
+  if (map.status && rawObj.status !== undefined) out.status = rawObj.status;
+  if (map.engineNo && rawObj.engineNo !== undefined) out.engineNo = rawObj.engineNo;
+  if (map.emiAmount && rawObj.emiAmount !== undefined) out.emiAmount = rawObj.emiAmount;
+  if (map.pos && rawObj.pos !== undefined) out.pos = rawObj.pos;
+  if (map.model && rawObj.model !== undefined) out.model = rawObj.model;
+  if (map.productName && rawObj.productName !== undefined) out.productName = rawObj.productName;
+  if (map.bucket && rawObj.bucket !== undefined) out.bucket = rawObj.bucket;
+  if (map.season && rawObj.season !== undefined) out.season = rawObj.season;
+  if (map.inYard && rawObj.inYard !== undefined) out.inYard = rawObj.inYard;
+  if (map.yardName && rawObj.yardName !== undefined) out.yardName = rawObj.yardName;
+  if (map.yardLocation && rawObj.yardLocation !== undefined) out.yardLocation = rawObj.yardLocation;
+  if (map.uploadDate && rawObj.uploadDate !== undefined) out.uploadDate = rawObj.uploadDate;
+  if (map.fileName && rawObj.fileName !== undefined) out.fileName = rawObj.fileName;
+  return out;
+}
+
 // Public/unified: Mobile/global search across vehicle collections (allows tenant users)
 router.get('/search', authenticateUnifiedToken, async (req, res) => {
   try {
@@ -225,6 +261,7 @@ router.get('/search', authenticateUnifiedToken, async (req, res) => {
     if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
 
     const conn = await getTenantDB(tenant.name);
+    const fieldMapping = tenant.fieldMapping || {};
     const collections = ['two_wheeler_data', 'four_wheeler_data', 'commercial_data'];
     const results = [];
     
@@ -254,7 +291,7 @@ router.get('/search', authenticateUnifiedToken, async (req, res) => {
           .hint({ registrationNumber: 1 }); // Force index usage
           
           for (const v of docs) {
-            results.push({
+            const base = {
               _id: v._id,
               vehicleType: col.includes('two') ? 'TwoWheeler' : col.includes('four') ? 'FourWheeler' : 'Commercial',
               regNo: v.registrationNumber || '',
@@ -263,7 +300,8 @@ router.get('/search', authenticateUnifiedToken, async (req, res) => {
               bank: v.bankName || '',
               make: v.vehicleMake || '',
               customerName: v.customerName || ''
-            });
+            };
+            results.push(filterFieldsForUser(base, fieldMapping, req.user));
             if (results.length >= parseInt(limit)) break;
           }
           if (results.length >= parseInt(limit)) break;
@@ -302,7 +340,7 @@ router.get('/search', authenticateUnifiedToken, async (req, res) => {
             .lean();
             
           for (const v of docs) {
-            results.push({
+            const base = {
               _id: v._id,
               vehicleType: col.includes('two') ? 'TwoWheeler' : col.includes('four') ? 'FourWheeler' : 'Commercial',
               regNo: v.registrationNumber || '',
@@ -311,7 +349,8 @@ router.get('/search', authenticateUnifiedToken, async (req, res) => {
               bank: v.bankName || '',
               make: v.vehicleMake || '',
               customerName: v.customerName || ''
-            });
+            };
+            results.push(filterFieldsForUser(base, fieldMapping, req.user));
             if (results.length >= parseInt(limit)) break;
           }
           if (results.length >= parseInt(limit)) break;
@@ -346,14 +385,14 @@ router.get('/vehicle/:id', authenticateUnifiedToken, async (req, res) => {
     if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
 
     const conn = await getTenantDB(tenant.name);
+    const fieldMapping = tenant.fieldMapping || {};
     const collections = ['two_wheeler_data', 'four_wheeler_data', 'commercial_data'];
     for (const col of collections) {
       const Model = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), col);
       try {
         const doc = await Model.findById(id).lean();
         if (doc) {
-          // normalized view + include entire raw document so frontend can render additional fields
-          return res.json({ success: true, data: { 
+          const base = {
             _id: doc._id,
             vehicleType: col.includes('two') ? 'TwoWheeler' : col.includes('four') ? 'FourWheeler' : 'Commercial',
             regNo: doc.registrationNumber || '',
@@ -383,9 +422,17 @@ router.get('/vehicle/:id', authenticateUnifiedToken, async (req, res) => {
             secondConfirmerName: doc.secondConfirmerName || '',
             secondConfirmerPhone: doc.secondConfirmerPhone || '',
             thirdConfirmerName: doc.thirdConfirmerName || '',
-            thirdConfirmerPhone: doc.thirdConfirmerPhone || '',
-            raw: doc
-          }});
+            thirdConfirmerPhone: doc.thirdConfirmerPhone || ''
+          };
+
+          // If office staff, allow full details; if repo agent, apply mapping
+          const userType = String(req.user?.userType || '').toLowerCase();
+          let responseData = base;
+          if (userType === 'repo_agent') {
+            responseData = filterFieldsForUser(base, fieldMapping, req.user);
+          }
+
+          return res.json({ success: true, data: responseData });
         }
       } catch (_) {}
     }
