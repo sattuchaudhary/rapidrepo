@@ -62,9 +62,13 @@ const approvePayment = async (req, res) => {
     if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
 
     const now = new Date();
-    // Determine mobile user id for per-user extension
-    const mobileUserId = req.body.mobileUserId || req.user?.agentId || req.user?.staffId || req.user?.userId;
+    // Determine mobile user id for per-user extension (prefer payment submitter)
+    const inferredMobileId = req.body.mobileUserId || payment.submittedByMobileId || req.user?.agentId || req.user?.staffId || req.user?.userId || null;
+    const mobileUserId = inferredMobileId;
     const userType = req.user?.userType || 'repo_agent';
+    if (!mobileUserId) {
+      return res.status(400).json({ success: false, message: 'Unable to determine mobile user for subscription' });
+    }
 
     const periodDaysMap = {
       weekly: 7,
