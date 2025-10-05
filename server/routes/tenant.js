@@ -3,6 +3,7 @@ const { body } = require('express-validator');
 const router = express.Router();
 const Tenant = require('../models/Tenant');
 const { authenticateUnifiedToken } = require('../middleware/unifiedAuth');
+const { getRemainingTime } = require('../middleware/subscription');
 
 const {
   getAllTenants,
@@ -171,6 +172,7 @@ router.get('/settings', authenticateUnifiedToken, async (req, res) => {
     // Return settings with defaults
     const settings = {
       dataMultiplier: tenant.settings?.dataMultiplier || 1,
+      paymentConfig: tenant.settings?.paymentConfig || { upiId: '', payeeName: '', qrCodeImageUrl: '', instructions: '' },
       ...tenant.settings
     };
 
@@ -185,6 +187,9 @@ router.get('/settings', authenticateUnifiedToken, async (req, res) => {
   }
 });
 
+// Subscription remaining time for current tenant
+router.get('/subscription/remaining', authenticateUnifiedToken, getRemainingTime);
+
 router.put('/settings', authenticateUnifiedToken, async (req, res) => {
   try {
     console.log('📊 Settings update request - User:', req.user);
@@ -196,7 +201,7 @@ router.put('/settings', authenticateUnifiedToken, async (req, res) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const { dataMultiplier } = req.body;
+    const { dataMultiplier, paymentConfig } = req.body;
     
     // Validate dataMultiplier
     if (dataMultiplier && ![1, 2, 3, 4, 5, 6].includes(dataMultiplier)) {
@@ -215,14 +220,34 @@ router.put('/settings', authenticateUnifiedToken, async (req, res) => {
     // Merge with existing settings
     const updatedSettings = {
       ...currentTenant.settings,
-      dataMultiplier: dataMultiplier || 1
+      dataMultiplier: dataMultiplier || currentTenant.settings?.dataMultiplier || 1,
+      paymentConfig: {
+        ...(currentTenant.settings?.paymentConfig || {}),
+        ...(paymentConfig || {})
+      }
     };
 
     console.log('📊 Updating settings to:', updatedSettings);
 
+    const updateDoc = {};
+    if (dataMultiplier !== undefined) updateDoc['settings.dataMultiplier'] = dataMultiplier;
+    if (paymentConfig) {
+      if (paymentConfig.upiId !== undefined) updateDoc['settings.paymentConfig.upiId'] = paymentConfig.upiId;
+      if (paymentConfig.payeeName !== undefined) updateDoc['settings.paymentConfig.payeeName'] = paymentConfig.payeeName;
+      if (paymentConfig.qrCodeImageUrl !== undefined) updateDoc['settings.paymentConfig.qrCodeImageUrl'] = paymentConfig.qrCodeImageUrl;
+      if (paymentConfig.instructions !== undefined) updateDoc['settings.paymentConfig.instructions'] = paymentConfig.instructions;
+      if (paymentConfig.planPrices) {
+        const pp = paymentConfig.planPrices || {};
+        if (pp.weekly !== undefined) updateDoc['settings.paymentConfig.planPrices.weekly'] = Number(pp.weekly) || 0;
+        if (pp.monthly !== undefined) updateDoc['settings.paymentConfig.planPrices.monthly'] = Number(pp.monthly) || 0;
+        if (pp.quarterly !== undefined) updateDoc['settings.paymentConfig.planPrices.quarterly'] = Number(pp.quarterly) || 0;
+        if (pp.yearly !== undefined) updateDoc['settings.paymentConfig.planPrices.yearly'] = Number(pp.yearly) || 0;
+      }
+    }
+
     const tenant = await Tenant.findByIdAndUpdate(
       tenantId, 
-      { 'settings.dataMultiplier': dataMultiplier || 1 },
+      updateDoc,
       { new: true, runValidators: true }
     );
 
@@ -232,11 +257,7 @@ router.put('/settings', authenticateUnifiedToken, async (req, res) => {
 
     console.log('📊 Updated tenant settings:', tenant.settings);
 
-    res.json({ 
-      success: true, 
-      message: 'Settings updated successfully',
-      data: tenant.settings
-    });
+    res.json({ success: true, message: 'Settings updated successfully', data: tenant.settings });
   } catch (error) {
     console.error('Error updating tenant settings:', error);
     res.status(500).json({ success: false, message: 'Failed to update tenant settings' });

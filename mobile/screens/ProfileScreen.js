@@ -58,6 +58,8 @@ import { maskPhoneNumber } from '../utils/format';
 export default function ProfileScreen({ navigation }) {
   const [agent, setAgent] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [remainingMs, setRemainingMs] = useState(null);
+  const [endDate, setEndDate] = useState(null);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [stats, setStats] = useState({
@@ -74,6 +76,7 @@ export default function ProfileScreen({ navigation }) {
         
         // Load user statistics
         await loadUserStats();
+        await loadSubscriptionRemaining();
       } catch (error) {
         console.error('Error loading profile:', error);
       } finally {
@@ -97,6 +100,20 @@ export default function ProfileScreen({ navigation }) {
     } catch (error) {
       console.error('Error loading user stats:', error);
     }
+  };
+
+  const loadSubscriptionRemaining = async () => {
+    try {
+      const token = await SecureStore.getItemAsync('token');
+      if (!token) return;
+      const res = await axios.get(`${getBaseURL()}/api/tenants/subscription/remaining`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const remaining = res?.data?.data?.remainingMs || 0;
+      const end = res?.data?.data?.endDate || null;
+      setRemainingMs(remaining);
+      setEndDate(end ? new Date(end) : null);
+    } catch (_) {}
   };
 
   const ProfileField = ({ icon, label, value }) => (
@@ -272,6 +289,34 @@ export default function ProfileScreen({ navigation }) {
             label="Role"
             value={agent?.role || agent?.designation || agent?.userType || 'User'}
           />
+        </View>
+
+        {/* Subscription Info */}
+        <View style={styles.infoCard}>
+          <Text style={styles.sectionTitle}>Subscription</Text>
+          <ProfileField 
+            icon="⏳"
+            label="Status"
+            value={remainingMs != null ? (remainingMs > 0 ? 'Active' : 'Expired') : 'Loading...'}
+          />
+          <ProfileField 
+            icon="📅"
+            label="Ends On"
+            value={endDate ? endDate.toLocaleString() : '—'}
+          />
+          <ProfileField 
+            icon="🕒"
+            label="Time Remaining"
+            value={remainingMs != null ? `${Math.floor(remainingMs / (1000*60*60*24))}d ${Math.floor((remainingMs/(1000*60*60))%24)}h` : '—'}
+          />
+          <TouchableOpacity style={[styles.actionButton, { borderBottomWidth: 0 }]} activeOpacity={0.8} onPress={() => navigation.navigate('Payment')}>
+            <Text style={styles.actionIcon}>💳</Text>
+            <View style={styles.actionContent}>
+              <Text style={styles.actionTitle}>Renew / Submit Payment</Text>
+              <Text style={styles.actionSubtitle}>Proceed to payment submission</Text>
+            </View>
+            <Text style={styles.actionChevron}>›</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Statistics Card */}

@@ -184,6 +184,10 @@ const adminRoutes = require('./routes/admin');
 const historyRoutes = require('./routes/history');
 const userRoutes = require('./routes/user');
 const tenantRoutes = require('./routes/tenant');
+const paymentsRoutes = require('./routes/payments');
+const { authenticateUnifiedToken } = require('./middleware/unifiedAuth');
+const { requireActiveSubscription } = require('./middleware/subscription');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -266,12 +270,19 @@ app.use('/api/history', historyRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/tenants', tenantRoutes);
 // Tenant-specific routes (must come before /api/tenant to avoid conflicts)
-app.use('/api/tenant/clients', require('./routes/client'));
-app.use('/api/tenant/users', require('./routes/tenantUsers'));
-app.use('/api/tenant/mobile', require('./routes/mobileUpload'));
-app.use('/api/tenant/data', require('./routes/fileManagement'));
+app.use('/api/tenant/clients', authenticateUnifiedToken, requireActiveSubscription, require('./routes/client'));
+app.use('/api/tenant/users', authenticateUnifiedToken, requireActiveSubscription, require('./routes/tenantUsers'));
+app.use('/api/tenant/mobile', authenticateUnifiedToken, requireActiveSubscription, require('./routes/mobileUpload'));
+app.use('/api/tenant/data', authenticateUnifiedToken, requireActiveSubscription, require('./routes/fileManagement'));
 app.use('/api/tenant', tenantRoutes); // Add singular route for tenant-specific endpoints
+app.use('/api/payments', paymentsRoutes);
 app.use('/api/bulk-download', require('./routes/bulkDownload'));
+app.use('/api/uploads', require('./routes/uploads'));
+// Static hosting for uploaded files
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  next();
+}, express.static(path.join(__dirname, 'uploads')));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

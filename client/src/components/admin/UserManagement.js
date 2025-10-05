@@ -246,12 +246,20 @@ const UserManagement = () => {
       </Box>
 
       {/* Actions and Filters */}
-      <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+      <Box sx={{ 
+        mb: 3, 
+        display: 'flex', 
+        gap: 2, 
+        flexWrap: 'wrap', 
+        alignItems: 'center',
+        flexDirection: { xs: 'column', sm: 'row' },
+        '& > *': { minWidth: { xs: '100%', sm: 'auto' } }
+      }}>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => handleOpenDialog()}
-          sx={{ borderRadius: 2 }}
+          sx={{ borderRadius: 2, width: { xs: '100%', sm: 'auto' } }}
         >
           Add New User
         </Button>
@@ -268,10 +276,10 @@ const UserManagement = () => {
               </InputAdornment>
             ),
           }}
-          sx={{ minWidth: 250 }}
+          sx={{ minWidth: { xs: '100%', sm: 250 } }}
         />
 
-        <FormControl size="small" sx={{ minWidth: 120 }}>
+        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 120 } }}>
           <InputLabel>Role</InputLabel>
           <Select
             value={roleFilter}
@@ -285,7 +293,7 @@ const UserManagement = () => {
           </Select>
         </FormControl>
 
-        <FormControl size="small" sx={{ minWidth: 120 }}>
+        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 120 } }}>
           <InputLabel>Status</InputLabel>
           <Select
             value={statusFilter}
@@ -301,81 +309,91 @@ const UserManagement = () => {
 
       {/* Users Table */}
       <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-        <TableContainer>
-          <Table stickyHeader>
+        <TableContainer sx={{ maxHeight: { xs: 400, md: 600 } }}>
+          <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Name</TableCell>
-                <TableCell>Email</TableCell>
-                <TableCell>Role</TableCell>
-                <TableCell>Tenant</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Created</TableCell>
-                <TableCell align="center">Actions</TableCell>
+                <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>Name</TableCell>
+                <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' }, display: { xs: 'none', sm: 'table-cell' } }}>Email</TableCell>
+                <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>Role</TableCell>
+                <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' }, display: { xs: 'none', md: 'table-cell' } }}>Tenant</TableCell>
+                <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>Status</TableCell>
+                <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' }, display: { xs: 'none', lg: 'table-cell' } }}>Created</TableCell>
+                <TableCell align="center" sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {users.map((user) => (
                 <TableRow key={user._id} hover>
-                  <TableCell>
+                  <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>
                     <Box>
-                      <Typography variant="subtitle2" fontWeight="bold">
+                      <Typography variant="subtitle2" fontWeight="bold" sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>
                         {user.firstName} {user.lastName}
+                      </Typography>
+                      <Typography variant="caption" sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '0.7rem' }}>
+                        {user.email}
                       </Typography>
                     </Box>
                   </TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>
+                  <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' }, display: { xs: 'none', sm: 'table-cell' } }}>
+                    {user.email}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>
                     <Chip
                       label={user.role.replace('_', ' ').toUpperCase()}
                       color={getRoleColor(user.role)}
                       size="small"
+                      sx={{ fontSize: { xs: '0.7rem', md: '0.75rem' } }}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' }, display: { xs: 'none', md: 'table-cell' } }}>
                     {user.tenantId ? user.tenantId.name : 'No Tenant'}
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>
                     <Box display="flex" alignItems="center" gap={1}>
                       {getStatusIcon(user.isActive)}
-                      <Typography variant="body2">
+                      <Typography variant="body2" sx={{ fontSize: { xs: '0.7rem', md: '0.75rem' } }}>
                         {user.isActive ? 'Active' : 'Inactive'}
                       </Typography>
                     </Box>
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' }, display: { xs: 'none', lg: 'table-cell' } }}>
                     {new Date(user.createdAt).toLocaleDateString()}
                   </TableCell>
-                  <TableCell align="center">
-                    <Box display="flex" gap={1} justifyContent="center">
+                  <TableCell align="center" sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>
+                    <Box display="flex" gap={0.5} justifyContent="center" flexWrap="wrap">
                       <IconButton
                         size="small"
                         onClick={() => setViewUser(user)}
                         color="info"
+                        sx={{ minWidth: 'auto', padding: { xs: '4px', md: '8px' } }}
                       >
-                        <ViewIcon />
+                        <ViewIcon sx={{ fontSize: { xs: '1rem', md: '1.25rem' } }} />
                       </IconButton>
                       <IconButton
                         size="small"
                         onClick={() => handleOpenDialog(user)}
                         color="primary"
+                        sx={{ minWidth: 'auto', padding: { xs: '4px', md: '8px' } }}
                       >
-                        <EditIcon />
+                        <EditIcon sx={{ fontSize: { xs: '1rem', md: '1.25rem' } }} />
                       </IconButton>
                       <IconButton
                         size="small"
                         onClick={() => handleToggleStatus(user._id, user.isActive)}
                         color={user.isActive ? 'warning' : 'success'}
+                        sx={{ minWidth: 'auto', padding: { xs: '4px', md: '8px' } }}
                       >
-                        {user.isActive ? <BlockIcon /> : <ActiveIcon />}
+                        {user.isActive ? <BlockIcon sx={{ fontSize: { xs: '1rem', md: '1.25rem' } }} /> : <ActiveIcon sx={{ fontSize: { xs: '1rem', md: '1.25rem' } }} />}
                       </IconButton>
                       {user.role !== 'super_admin' && (
                         <IconButton
                           size="small"
                           onClick={() => handleDeleteUser(user._id)}
                           color="error"
+                          sx={{ minWidth: 'auto', padding: { xs: '4px', md: '8px' } }}
                         >
-                          <DeleteIcon />
+                          <DeleteIcon sx={{ fontSize: { xs: '1rem', md: '1.25rem' } }} />
                         </IconButton>
                       )}
                     </Box>

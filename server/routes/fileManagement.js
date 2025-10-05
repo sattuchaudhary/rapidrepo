@@ -714,7 +714,7 @@ router.get('/offline-chunk', authenticateUnifiedToken, async (req, res) => {
     const M = conn.model('Vehicle', new mongoose.Schema({}, { strict: false }), collection);
 
     const s = Math.max(0, parseInt(skip));
-    const l = Math.min(100000, Math.max(1, parseInt(limit))); // Max 1 lakh records per chunk
+    const l = Math.min(50000, Math.max(1, parseInt(limit))); // Max 50k records per chunk
 
     const docs = await M.find({}, {
       registrationNumber: 1,

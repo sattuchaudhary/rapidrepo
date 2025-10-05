@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { StyleSheet, View, Text, FlatList, ActivityIndicator, Modal, TouchableOpacity, TextInput, StatusBar, ScrollView, InteractionManager, useColorScheme, Animated, Appearance, Keyboard, Linking, Alert, Share, Platform } from 'react-native';
+import { StyleSheet, View, Text, FlatList, ActivityIndicator, Modal, TouchableOpacity, TextInput, StatusBar, ScrollView, InteractionManager, useColorScheme, Animated, Appearance, Keyboard, Linking, Alert, Share, Platform, Easing } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
@@ -54,6 +54,39 @@ export default function SearchResultsScreen({ route, navigation }) {
   
   const [searchCache, setSearchCache] = useState(new Map());
   const [searchIndex, setSearchIndex] = useState(new Map());
+  
+  // Performance optimization: Memoize search functions
+  const memoizedSearchByRegSuffix = useCallback(async (suffix) => {
+    try {
+      return await searchByRegSuffix(suffix);
+    } catch (error) {
+      console.error('Reg suffix search error:', error);
+      return [];
+    }
+  }, []);
+
+  const memoizedSearchByChassis = useCallback(async (needle) => {
+    try {
+      return await searchByChassis(needle);
+    } catch (error) {
+      console.error('Chassis search error:', error);
+      return [];
+    }
+  }, []);
+
+  // Performance optimization: Debounced search to reduce database calls
+  const debouncedSearch = useCallback(
+    (() => {
+      let timeoutId;
+      return (query, type) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          runSearch(query, type, false, false);
+        }, 150); // 150ms debounce for better performance
+      };
+    })(),
+    []
+  );
   const [azMode, setAzMode] = useState(true);
   const [hasUserSearched, setHasUserSearched] = useState(false);
   const [suppressClearOnce, setSuppressClearOnce] = useState(false);
@@ -63,6 +96,7 @@ export default function SearchResultsScreen({ route, navigation }) {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const chassisInputRef = useRef(null);
   const regSuffixInputRef = useRef(null);
+  const scrollViewRef = useRef(null);
   
   // Keep content visible above keyboard
   useEffect(() => {
@@ -79,6 +113,77 @@ export default function SearchResultsScreen({ route, navigation }) {
   // Animation values for smooth transitions
   const fadeAnim = useState(new Animated.Value(0))[0];
   const slideAnim = useState(new Animated.Value(50))[0];
+  
+  // Modal animation values for smooth right-to-left slide
+  const modalSlideAnim = useState(new Animated.Value(300))[0];
+  const modalOpacityAnim = useState(new Animated.Value(0))[0];
+  
+  // Search results animation for ultra-smooth experience
+  const resultsFadeAnim = useState(new Animated.Value(0))[0];
+  const resultsSlideAnim = useState(new Animated.Value(30))[0];
+  const [isAnimating, setIsAnimating] = useState(false);
+
+  // Ensure preloaded results from dashboard are visible immediately
+  useEffect(() => {
+    try {
+      if (Array.isArray(initialResults) && initialResults.length > 0) {
+        resultsFadeAnim.setValue(1);
+        resultsSlideAnim.setValue(0);
+        if (scrollViewRef.current) {
+          scrollViewRef.current.scrollTo({ y: 0, animated: false });
+        }
+      }
+    } catch (_) {}
+    // Only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Modal animation functions for ULTRA-SMOOTH right-to-left slide
+  const openModal = useCallback((vehicleData) => {
+    setDetail(vehicleData);
+    setDetailOpen(true);
+    
+    // Reset animation values
+    modalSlideAnim.setValue(300);
+    modalOpacityAnim.setValue(0);
+    
+    // ULTRA-FAST animation with spring physics for natural feel
+    Animated.parallel([
+      Animated.spring(modalSlideAnim, {
+        toValue: 0,
+        tension: 140, // lower tension for smoother slide
+        friction: 20, // moderate friction to avoid snap
+        useNativeDriver: true,
+      }),
+      Animated.timing(modalOpacityAnim, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [modalSlideAnim, modalOpacityAnim]);
+
+  const closeModal = useCallback(() => {
+    // ULTRA-FAST modal close with spring physics
+    Animated.parallel([
+      Animated.spring(modalSlideAnim, {
+        toValue: 300,
+        tension: 180, // slightly snappier than open, but still smooth
+        friction: 22,
+        useNativeDriver: true,
+      }),
+      Animated.timing(modalOpacityAnim, {
+        toValue: 0,
+        duration: 160,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setDetailOpen(false);
+      setDetail(null);
+    });
+  }, [modalSlideAnim, modalOpacityAnim]);
 
   // Helper: log search click to server with robust error reporting
   const logSearchClick = useCallback(async (vehicle, queryText) => {
@@ -138,7 +243,7 @@ export default function SearchResultsScreen({ route, navigation }) {
     return () => subscription?.remove();
   }, []);
 
-  // Screen entrance animation
+  // ULTRA-SMOOTH screen entrance animation
   useEffect(() => {
     // Start entrance animation when component mounts
     fadeAnim.setValue(0);
@@ -146,18 +251,20 @@ export default function SearchResultsScreen({ route, navigation }) {
     
     const timer = setTimeout(() => {
       Animated.parallel([
-        Animated.timing(fadeAnim, {
+        Animated.spring(fadeAnim, {
           toValue: 1,
-          duration: 300,
+          tension: 200,
+          friction: 20,
           useNativeDriver: true,
         }),
-        Animated.timing(slideAnim, {
+        Animated.spring(slideAnim, {
           toValue: 0,
-          duration: 300,
+          tension: 200,
+          friction: 20,
           useNativeDriver: true,
         }),
       ]).start();
-    }, 50); // Small delay to ensure smooth transition
+    }, 30); // Reduced delay for faster feel
     
     return () => clearTimeout(timer);
   }, []);
@@ -170,23 +277,47 @@ export default function SearchResultsScreen({ route, navigation }) {
         const stored = await SecureStore.getItemAsync('agent');
         if (stored) setAgent(JSON.parse(stored));
         
-        // Load field mapping in background (non-blocking)
+        // Load field mapping in background (non-blocking) - OFFLINE OPTIMIZED
         const token = await SecureStore.getItemAsync('token');
         if (token) {
           // Defer field mapping loading to avoid blocking initial render
           setTimeout(async () => {
             try {
+              // First try to load cached field mapping for offline use
+              const cachedMapping = await SecureStore.getItemAsync('fieldMapping');
+              if (cachedMapping) {
+                console.log('Using cached field mapping for offline mode');
+                setFieldMapping(JSON.parse(cachedMapping));
+              }
+              
+              // Then try to fetch fresh mapping from server
               const res = await axios.get(`${getBaseURL()}/api/tenants/field-mapping`, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${token}` },
+                timeout: 10000 // 10 second timeout
               });
               if (res?.data?.success) {
-                console.log('Field mapping received:', res.data.fieldMapping);
+                console.log('Field mapping received from server:', res.data.fieldMapping);
                 setFieldMapping(res.data.fieldMapping || null);
+                // Cache the fresh mapping for offline use
+                await SecureStore.setItemAsync('fieldMapping', JSON.stringify(res.data.fieldMapping || {}));
               }
             } catch (error) {
               console.error('Error fetching field mapping:', error);
-              // Set default field mapping if API fails
-              setFieldMapping({
+              
+              // Try to use cached mapping if server fails
+              try {
+                const cachedMapping = await SecureStore.getItemAsync('fieldMapping');
+                if (cachedMapping) {
+                  console.log('Using cached field mapping due to server error');
+                  setFieldMapping(JSON.parse(cachedMapping));
+                  return;
+                }
+              } catch (cacheError) {
+                console.log('No cached field mapping available');
+              }
+              
+              // Set default field mapping if both server and cache fail
+              const defaultMapping = {
                 regNo: true,
                 chassisNo: true,
                 loanNo: true,
@@ -208,7 +339,10 @@ export default function SearchResultsScreen({ route, navigation }) {
                 status: true,
                 uploadDate: false,
                 fileName: false
-              });
+              };
+              setFieldMapping(defaultMapping);
+              // Cache default mapping for future offline use
+              await SecureStore.setItemAsync('fieldMapping', JSON.stringify(defaultMapping));
             }
           }, 100); // Small delay to prioritize UI rendering
         }
@@ -342,6 +476,46 @@ export default function SearchResultsScreen({ route, navigation }) {
         const cachedResults = searchCache.get(cacheKey);
         // Safety: ensure deduplication even for cached entries
         setResults(dedupeResults(cachedResults));
+        
+        // SMOOTH CACHED RESULTS ANIMATION
+        setIsAnimating(true);
+        resultsFadeAnim.setValue(0);
+        resultsSlideAnim.setValue(30);
+        
+        Animated.parallel([
+          Animated.timing(resultsFadeAnim, {
+            toValue: 1,
+            duration: 150, // Faster for cached results
+            useNativeDriver: true,
+          }),
+          Animated.spring(resultsSlideAnim, {
+            toValue: 0,
+            tension: 250,
+            friction: 15,
+            useNativeDriver: true,
+          }),
+        ]).start(() => setIsAnimating(false));
+        
+        // SCROLL TO TOP when cached results are shown
+        if (scrollViewRef.current) {
+          scrollViewRef.current.scrollTo({ y: 0, animated: true });
+        }
+        
+        // Ensure inputs clear even when using cached results
+        if (clearInputsAfter) {
+          setSuppressClearOnce(true);
+          setRegSuffixInput('');
+          setChassisInput('');
+          setTimeout(() => setSuppressClearOnce(false), 0);
+          setTimeout(() => {
+            if (type === 'reg') {
+              regSuffixInputRef.current && regSuffixInputRef.current.focus();
+            } else if (type === 'chassis') {
+              chassisInputRef.current && chassisInputRef.current.focus();
+            }
+          }, 50);
+        }
+
         setError('');
         return; // INSTANT results from cache
       }
@@ -349,8 +523,90 @@ export default function SearchResultsScreen({ route, navigation }) {
       // INSTANT search - no loading states
       setError('');
       
-      // Only use local dataset in explicit OFFLINE mode; online always fetches server
-      const useLocalData = offline;
+      // PRIORITIZE OFFLINE DATA - Always try offline first for faster performance
+      let offlineResults = [];
+      try {
+        if (type === 'reg' && /^\d{4}$/.test(qVal)) {
+          offlineResults = await memoizedSearchByRegSuffix(qVal);
+        } else if (type === 'chassis' && String(qVal).trim().length >= 3) {
+          offlineResults = await memoizedSearchByChassis(qVal);
+        } else {
+          // Try both if type ambiguous
+          const regResults = await memoizedSearchByRegSuffix(String(qVal).slice(-4));
+          const chassisResults = await memoizedSearchByChassis(qVal);
+          const seen = new Set();
+          offlineResults = [];
+          for (const it of [...regResults, ...chassisResults]) {
+            const k = String(it._id || it.regNo || '').toUpperCase();
+            if (seen.has(k)) continue;
+            seen.add(k);
+            offlineResults.push(it);
+          }
+        }
+      } catch (offlineError) {
+        console.log('Offline search failed:', offlineError);
+      }
+      
+      // If we have offline results, use them immediately for fast performance
+      if (offlineResults && offlineResults.length > 0) {
+        const unique = dedupeResults(offlineResults);
+        
+        // Cache results for future instant access
+        setSearchCache(prev => {
+          const newCache = new Map(prev);
+          newCache.set(cacheKey, unique);
+          if (newCache.size > 100) {
+            const firstKey = newCache.keys().next().value;
+            newCache.delete(firstKey);
+          }
+          return newCache;
+        });
+        
+        setResults(unique);
+        
+        // SMOOTH RESULTS ANIMATION
+        setIsAnimating(true);
+        resultsFadeAnim.setValue(0);
+        resultsSlideAnim.setValue(30);
+        
+        Animated.parallel([
+          Animated.timing(resultsFadeAnim, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.spring(resultsSlideAnim, {
+            toValue: 0,
+            tension: 200,
+            friction: 20,
+            useNativeDriver: true,
+          }),
+        ]).start(() => setIsAnimating(false));
+        
+        // SCROLL TO TOP when new results arrive
+        if (scrollViewRef.current) {
+          scrollViewRef.current.scrollTo({ y: 0, animated: true });
+        }
+        
+        if (clearInputsAfter) {
+          setSuppressClearOnce(true);
+          setRegSuffixInput('');
+          setChassisInput('');
+          setTimeout(() => setSuppressClearOnce(false), 0);
+          setTimeout(() => {
+            if (type === 'reg') {
+              regSuffixInputRef.current && regSuffixInputRef.current.focus();
+            } else if (type === 'chassis') {
+              chassisInputRef.current && chassisInputRef.current.focus();
+            }
+          }, 50);
+        }
+        setError('');
+        return; // INSTANT offline results - fastest performance
+      }
+      
+      // Fallback to local dataset if available
+      const useLocalData = offline || (offlineData && Array.isArray(offlineData) && offlineData.length > 0);
       if (useLocalData) {
         // LOCAL MODE (offline or local dataset available)
         if (!offline && offlineData && Array.isArray(offlineData) && offlineData.length > 0) {
@@ -413,6 +669,31 @@ export default function SearchResultsScreen({ route, navigation }) {
           
           
           setResults(unique);
+          
+          // SMOOTH ONLINE RESULTS ANIMATION
+          setIsAnimating(true);
+          resultsFadeAnim.setValue(0);
+          resultsSlideAnim.setValue(30);
+          
+          Animated.parallel([
+            Animated.timing(resultsFadeAnim, {
+              toValue: 1,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+            Animated.spring(resultsSlideAnim, {
+              toValue: 0,
+              tension: 200,
+              friction: 20,
+              useNativeDriver: true,
+            }),
+          ]).start(() => setIsAnimating(false));
+          
+          // SCROLL TO TOP when new results arrive
+          if (scrollViewRef.current) {
+            scrollViewRef.current.scrollTo({ y: 0, animated: true });
+          }
+          
           if (clearInputsAfter) {
             setSuppressClearOnce(true);
             setRegSuffixInput('');
@@ -432,13 +713,13 @@ export default function SearchResultsScreen({ route, navigation }) {
           // Fallback to SQLite-based offline search
           let rows = [];
           if (type === 'reg' && /^\d{4}$/.test(qVal)) {
-            rows = await searchByRegSuffix(qVal);
+            rows = await memoizedSearchByRegSuffix(qVal);
           } else if (type === 'chassis' && String(qVal).trim().length >= 3) {
-            rows = await searchByChassis(qVal);
+            rows = await memoizedSearchByChassis(qVal);
           } else {
             // Try both if type ambiguous
-            const a = await searchByRegSuffix(String(qVal).slice(-4));
-            const b = await searchByChassis(qVal);
+            const a = await memoizedSearchByRegSuffix(String(qVal).slice(-4));
+            const b = await memoizedSearchByChassis(qVal);
             const seen = new Set();
             rows = [];
             for (const it of [...a, ...b]) {
@@ -449,6 +730,31 @@ export default function SearchResultsScreen({ route, navigation }) {
             }
           }
           setResults(dedupeResults(rows || []));
+          
+          // SMOOTH SQLITE RESULTS ANIMATION
+          setIsAnimating(true);
+          resultsFadeAnim.setValue(0);
+          resultsSlideAnim.setValue(30);
+          
+          Animated.parallel([
+            Animated.timing(resultsFadeAnim, {
+              toValue: 1,
+              duration: 200,
+              useNativeDriver: true,
+            }),
+            Animated.spring(resultsSlideAnim, {
+              toValue: 0,
+              tension: 200,
+              friction: 20,
+              useNativeDriver: true,
+            }),
+          ]).start(() => setIsAnimating(false));
+          
+          // SCROLL TO TOP when new results arrive
+          if (scrollViewRef.current) {
+            scrollViewRef.current.scrollTo({ y: 0, animated: true });
+          }
+          
           if (clearInputsAfter) {
             setSuppressClearOnce(true);
             setRegSuffixInput('');
@@ -617,27 +923,35 @@ export default function SearchResultsScreen({ route, navigation }) {
   const keyExtractor = useCallback((item, index) => String(item._id || item.id || item.regNo || item.chassisNo || index), []);
   const renderListItem = useCallback(({ item, index }) => (
     <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={styles.listItem} onPress={async () => {
+      // INSTANT OFFLINE MODE - Use local data immediately for fast performance
+      openModal(item);
+      
+      // Background server fetch (non-blocking) for additional data if online
       try {
         const token = await SecureStore.getItemAsync('token');
-        const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setDetail(res.data?.data || null);
-        setDetailOpen(true);
-
-        // Log search click to per-tenant history
-        await logSearchClick(item, regSuffixInput || chassisInput || '');
+        if (token) {
+          // Fire-and-forget server fetch for enhanced data
+          axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+            timeout: 5000 // Quick timeout for offline detection
+          }).then(res => {
+            // Update modal with server data if available
+            if (res.data?.data) {
+              setDetail(res.data.data);
+            }
+          }).catch(() => {
+            // Server unavailable - keep using local data
+            console.log('Server unavailable, using local data');
+          });
+        }
         
-        // Fetch agency confirmers for repo agents
-        await fetchAgencyConfirmers();
+        // Log search click to per-tenant history (non-blocking)
+        logSearchClick(item, regSuffixInput || chassisInput || '').catch(() => {});
+        
+        // Fetch agency confirmers for repo agents (non-blocking)
+        fetchAgencyConfirmers().catch(() => {});
       } catch (error) {
-        console.error('Error fetching vehicle details:', error);
-        // Fallback to local data if server fails
-        setDetail(item);
-        setDetailOpen(true);
-        
-        // Fetch agency confirmers for repo agents (fallback case)
-        await fetchAgencyConfirmers();
+        console.log('Background fetch failed, using local data only');
       }
     }}>
       <Text numberOfLines={1} style={styles.listTitle}>{item.regNo || ''}</Text>
@@ -669,8 +983,12 @@ export default function SearchResultsScreen({ route, navigation }) {
     // Mark that user has started searching
     setHasUserSearched(true);
     
-    // INSTANT search - immediate execution
-    runSearch(value, 'reg', false, true);
+    // INSTANT search - immediate execution for 4-digit queries, debounced for others
+    if (/^\d{4}$/.test(value)) {
+      runSearch(value, 'reg', false, true);
+    } else {
+      debouncedSearch(value, 'reg');
+    }
   }, [regSuffixInput, q, fromDashboard, preloadedData, hasUserSearched]);
 
   // Trigger chassis search when input length >= 3 - INSTANT
@@ -687,7 +1005,7 @@ export default function SearchResultsScreen({ route, navigation }) {
     if (value.length >= 3) {
       // Mark that user has started searching
       setHasUserSearched(true);
-      // INSTANT search - immediate execution
+      // INSTANT search - immediate execution for chassis queries
       runSearch(value, 'chassis', false, true);
     } else if (value.length === 0) {
       if (hasUserSearched) setResults([]);
@@ -737,33 +1055,59 @@ export default function SearchResultsScreen({ route, navigation }) {
       )}
       {/* Non A–Z list removed; always showing A–Z columns */}
       {results.length > 0 && azMode && (
-        <View style={{ flex: 1 }}>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: keyboardHeight + 6 }} keyboardShouldPersistTaps="always" keyboardDismissMode="none">
+        <Animated.View 
+          style={{ 
+            flex: 1,
+            opacity: resultsFadeAnim,
+            transform: [{ translateY: resultsSlideAnim }]
+          }}
+        >
+          <ScrollView 
+            ref={scrollViewRef}
+            style={{ flex: 1 }} 
+            contentContainerStyle={{ paddingBottom: keyboardHeight + 6 }} 
+            keyboardShouldPersistTaps="always" 
+            keyboardDismissMode="none"
+            showsVerticalScrollIndicator={false}
+            bounces={true}
+            scrollEventThrottle={16}
+            removeClippedSubviews={true}
+            maxToRenderPerBatch={10}
+            windowSize={10}
+            initialNumToRender={20}
+            getItemLayout={(data, index) => ({
+              length: 60,
+              offset: 60 * index,
+              index,
+            })}
+          >
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <View style={{ flex: 1, gap: 8 }}>
                 {azColumns.left.map((item, index) => (
                 <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={[styles.listItem, { backgroundColor: theme.cardBg, borderColor: theme.surfaceBorder }]} onPress={async () => {
+                  // Open modal immediately for offline-first UX
+                  openModal(item);
+                  
+                  // Background server fetch (non-blocking) for additional data if online
                   try {
                     const token = await SecureStore.getItemAsync('token');
-                    const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
-                      headers: { Authorization: `Bearer ${token}` }
-                    });
-                    setDetail(res.data?.data || null);
-                    setDetailOpen(true);
-
-                    // Log search click to per-tenant history
-                    await logSearchClick(item, regSuffixInput || chassisInput || '');
-                    
-                    // Fetch agency confirmers for repo agents
-                    await fetchAgencyConfirmers();
+                    if (token) {
+                      axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                        timeout: 5000
+                      }).then(res => {
+                        if (res.data?.data) {
+                          setDetail(res.data.data);
+                        }
+                      }).catch(() => {
+                        console.log('Server unavailable, using local data');
+                      });
+                    }
+                    // Log search click and fetch confirmers (non-blocking)
+                    logSearchClick(item, regSuffixInput || chassisInput || '').catch(() => {});
+                    fetchAgencyConfirmers().catch(() => {});
                   } catch (error) {
-                    console.error('Error fetching vehicle details (A-Z):', error);
-                    // Fallback to local data if server fails
-                    setDetail(item);
-                    setDetailOpen(true);
-                    
-                    // Fetch agency confirmers for repo agents (fallback case)
-                    await fetchAgencyConfirmers();
+                    console.log('Background fetch failed, using local data only');
                   }
                 }}>
                   <Text numberOfLines={1} style={[styles.listTitle, { color: theme.textPrimary }]}>{item.regNo || ''}</Text>
@@ -773,27 +1117,29 @@ export default function SearchResultsScreen({ route, navigation }) {
             <View style={{ flex: 1, gap: 8 }}>
               {azColumns.right.map((item, index) => (
                 <TouchableOpacity key={String(item._id || item.id || item.regNo || item.chassisNo || index)} style={[styles.listItem, { backgroundColor: theme.cardBg, borderColor: theme.surfaceBorder }]} onPress={async () => {
+                  // Open modal immediately for offline-first UX
+                  openModal(item);
+                  
+                  // Background server fetch (non-blocking) for additional data if online
                   try {
                     const token = await SecureStore.getItemAsync('token');
-                    const res = await axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
-                      headers: { Authorization: `Bearer ${token}` }
-                    });
-                    setDetail(res.data?.data || null);
-                    setDetailOpen(true);
-
-                    // Log search click to per-tenant history
-                    await logSearchClick(item, regSuffixInput || chassisInput || '');
-                    
-                    // Fetch agency confirmers for repo agents
-                    await fetchAgencyConfirmers();
+                    if (token) {
+                      axios.get(`${getBaseURL()}/api/tenant/data/vehicle/${item._id}`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                        timeout: 5000
+                      }).then(res => {
+                        if (res.data?.data) {
+                          setDetail(res.data.data);
+                        }
+                      }).catch(() => {
+                        console.log('Server unavailable, using local data');
+                      });
+                    }
+                    // Log search click and fetch confirmers (non-blocking)
+                    logSearchClick(item, regSuffixInput || chassisInput || '').catch(() => {});
+                    fetchAgencyConfirmers().catch(() => {});
                   } catch (error) {
-                    console.error('Error fetching vehicle details (A-Z):', error);
-                    // Fallback to local data if server fails
-                    setDetail(item);
-                    setDetailOpen(true);
-                    
-                    // Fetch agency confirmers for repo agents (fallback case)
-                    await fetchAgencyConfirmers();
+                    console.log('Background fetch failed, using local data only');
                   }
                 }}>
                   <Text numberOfLines={1} style={[styles.listTitle, { color: theme.textPrimary }]}>{item.regNo || ''}</Text>
@@ -802,12 +1148,20 @@ export default function SearchResultsScreen({ route, navigation }) {
             </View>
           </View>
         </ScrollView>
-        </View>
+        </Animated.View>
       )}
+      </Animated.View>
 
-      <Modal visible={detailOpen} transparent animationType="slide" onRequestClose={() => setDetailOpen(false)}>
+      <Modal visible={detailOpen} transparent animationType="none" onRequestClose={closeModal}>
         <View style={styles.modalWrap}>
-          <View style={[styles.modalCard, { backgroundColor: theme.cardBg }] }>
+          <Animated.View style={[
+            styles.modalCard, 
+            { 
+              backgroundColor: theme.cardBg,
+              transform: [{ translateX: modalSlideAnim }],
+              opacity: modalOpacityAnim
+            }
+          ]}>
             {detail ? (
               <ScrollView showsVerticalScrollIndicator={false}>
                 {/* Header Section */}
@@ -819,7 +1173,7 @@ export default function SearchResultsScreen({ route, navigation }) {
                     <Text style={[styles.modalTitle, { color: theme.textPrimary }]}>{detail.regNo || 'Vehicle'}</Text>
                     <Text style={[styles.vehicleType, { color: theme.textSecondary }]}>{detail.vehicleType || 'Vehicle'}</Text>
                   </View>
-                  <TouchableOpacity onPress={() => setDetailOpen(false)} style={[styles.closeBtn, { backgroundColor: isDark ? '#1f2937' : '#E5E7EB' }]}>
+                  <TouchableOpacity onPress={closeModal} style={[styles.closeBtn, { backgroundColor: isDark ? '#1f2937' : '#E5E7EB' }]}>
                     <Text style={[styles.closeBtnText, { color: theme.textSecondary }]}>✕</Text>
                   </TouchableOpacity>
                 </View>
@@ -1105,7 +1459,7 @@ export default function SearchResultsScreen({ route, navigation }) {
                             headers: { Authorization: `Bearer ${token}` }
                           });
                           setConfirming(false);
-                          setDetailOpen(false);
+                          closeModal();
                         } catch (_) { setConfirming(false); }
                       }}>
                         <Text style={styles.primaryBtnText}>
@@ -1144,10 +1498,9 @@ export default function SearchResultsScreen({ route, navigation }) {
                 <Text style={styles.loadingText}>Loading vehicle details...</Text>
               </View>
             )}
-          </View>
+          </Animated.View>
         </View>
       </Modal>
-      </Animated.View>
     </SafeAreaView>
   );
 }

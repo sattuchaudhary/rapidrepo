@@ -76,12 +76,14 @@ export const initDatabase = async () => {
     console.log('🔧 Initializing database...');
     const db = getDatabase();
     
-    // Create table and indexes if not exists
+    // Create table and indexes if not exists - optimized for speed
     try {
+      // Use faster PRAGMA settings for better performance
       await executeSql(db, 'PRAGMA journal_mode=WAL');
       await executeSql(db, 'PRAGMA synchronous=NORMAL');
-      await executeSql(db, 'PRAGMA busy_timeout=5000');
-      await executeSql(db, 'PRAGMA cache_size=10000');
+      await executeSql(db, 'PRAGMA busy_timeout=2000'); // Reduced timeout
+      await executeSql(db, 'PRAGMA cache_size=5000'); // Reduced cache for faster startup
+      await executeSql(db, 'PRAGMA temp_store=MEMORY'); // Use memory for temp tables
       console.log('✅ Database PRAGMA settings applied');
     } catch (e) {
       console.log('PRAGMA setup warning:', e?.message || e);
@@ -148,8 +150,7 @@ export const clearVehicles = async () => {
 
 export const countVehicles = async () => {
   try {
-    // Ensure DB and tables are initialized before counting
-    await initDatabase();
+    // Skip full initialization for faster startup - just get database
     const db = getDatabase();
     const res = await executeSql(db, 'SELECT COUNT(1) as c FROM vehicles');
     const count = res?.rows?._array?.[0]?.c || 0;
@@ -157,7 +158,17 @@ export const countVehicles = async () => {
     return count;
   } catch (error) {
     console.error('Error counting vehicles:', error.message);
-    return 0;
+    // If count fails, try to initialize database and retry
+    try {
+      await initDatabase();
+      const db = getDatabase();
+      const res = await executeSql(db, 'SELECT COUNT(1) as c FROM vehicles');
+      const count = res?.rows?._array?.[0]?.c || 0;
+      return count;
+    } catch (retryError) {
+      console.error('Error counting vehicles after retry:', retryError.message);
+      return 0;
+    }
   }
 };
 

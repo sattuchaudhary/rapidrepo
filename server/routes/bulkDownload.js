@@ -79,7 +79,7 @@ router.get('/bulk-data', authenticateUnifiedToken, async (req, res) => {
       : collections.split(',').map(c => `${c}_data`);
 
     // For large datasets, return chunked data instead of streaming
-    const maxRecords = 100000; // 100k records max for bulk download
+    const maxRecords = 50000; // 50k records max for bulk download
     let totalRecords = 0;
     
     // Count total records first
@@ -413,10 +413,10 @@ router.post('/create-snapshot', authenticateUnifiedToken, requireAdmin, async (r
   }
 });
 
-// Simple dump endpoint for mobile app (1 lakh records max per batch)
+// Simple dump endpoint for mobile app (50k records max per batch)
 router.get('/simple-dump', authenticateUnifiedToken, async (req, res) => {
   try {
-    const { limit = 100000, offset = 0 } = req.query;
+    const { limit = 50000, offset = 0 } = req.query;
     
     const tenantId = req.user?.tenantId;
     const tenantName = req.user?.tenantName;
@@ -444,7 +444,7 @@ router.get('/simple-dump', authenticateUnifiedToken, async (req, res) => {
     // Collect data from all collections
     const allData = [];
     let currentOffset = parseInt(offset);
-    let remainingLimit = Math.min(parseInt(limit), 100000); // Max 1 lakh records per batch
+    let remainingLimit = Math.min(parseInt(limit), 50000); // Max 50k records per batch
     
     for (const collectionName of collections) {
       if (remainingLimit <= 0) break;
@@ -538,7 +538,7 @@ router.get('/simple-dump', authenticateUnifiedToken, async (req, res) => {
 // Get new records since timestamp (for incremental sync)
 router.get('/new-records', authenticateUnifiedToken, async (req, res) => {
   try {
-    const { since, limit = 100000, offset = 0 } = req.query;
+    const { since, limit = 50000, offset = 0 } = req.query;
     
     if (!since) {
       return res.status(400).json({ 
@@ -570,7 +570,7 @@ router.get('/new-records', authenticateUnifiedToken, async (req, res) => {
     // Get new records from all collections
     const allNewData = [];
     let currentOffset = parseInt(offset);
-    let remainingLimit = Math.min(parseInt(limit), 100000); // Max 1 lakh records per batch
+    let remainingLimit = Math.min(parseInt(limit), 50000); // Max 50k records per batch
     
     for (const collectionName of collections) {
       if (remainingLimit <= 0) break;

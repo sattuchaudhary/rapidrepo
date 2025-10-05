@@ -1,0 +1,274 @@
+/* Global Scaling Optimization for Laptop Screens */
+
+/* Base font size reduction */
+html {
+  font-size: 14px;
+}
+
+/* Global component scaling */
+.MuiButton-root {
+  font-size: 0.8rem !important;
+  padding: 8px 16px !important;
+}
+
+.MuiTextField-root {
+  font-size: 0.875rem !important;
+}
+
+.MuiCard-root {
+  border-radius: 12px !important;
+}
+
+.MuiTypography-h1 {
+  font-size: 2rem !important;
+}
+
+.MuiTypography-h2 {
+  font-size: 1.75rem !important;
+}
+
+.MuiTypography-h3 {
+  font-size: 1.375rem !important;
+}
+
+.MuiTypography-h4 {
+  font-size: 1.125rem !important;
+}
+
+.MuiTypography-h5 {
+  font-size: 1rem !important;
+}
+
+.MuiTypography-h6 {
+  font-size: 0.875rem !important;
+}
+
+.MuiTypography-body1 {
+  font-size: 0.875rem !important;
+}
+
+.MuiTypography-body2 {
+  font-size: 0.8rem !important;
+}
+
+/* Reduce spacing globally */
+.MuiBox-root {
+  font-size: 0.875rem;
+}
+
+.MuiGrid-container {
+  gap: 16px !important;
+}
+
+/* Compact form elements */
+.MuiFormControl-root {
+  font-size: 0.875rem !important;
+}
+
+.MuiInputLabel-root {
+  font-size: 0.875rem !important;
+}
+
+.MuiSelect-root {
+  font-size: 0.875rem !important;
+}
+
+/* Compact table elements */
+.MuiTable-root {
+  font-size: 0.8rem !important;
+}
+
+.MuiTableCell-root {
+  padding: 8px 12px !important;
+  font-size: 0.8rem !important;
+}
+
+.MuiTableHead-root .MuiTableCell-root {
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+}
+
+/* Compact list elements */
+.MuiList-root {
+  font-size: 0.875rem !important;
+}
+
+.MuiListItem-root {
+  padding: 4px 8px !important;
+}
+
+.MuiListItemText-root {
+  font-size: 0.875rem !important;
+}
+
+/* Compact dialog elements */
+.MuiDialog-paper {
+  border-radius: 12px !important;
+}
+
+.MuiDialogTitle-root {
+  font-size: 1.125rem !important;
+  padding: 16px 20px !important;
+}
+
+.MuiDialogContent-root {
+  padding: 16px 20px !important;
+  font-size: 0.875rem !important;
+}
+
+.MuiDialogActions-root {
+  padding: 12px 20px !important;
+}
+
+/* Compact chip elements */
+.MuiChip-root {
+  font-size: 0.75rem !important;
+  height: 24px !important;
+}
+
+/* Compact avatar elements */
+.MuiAvatar-root {
+  width: 32px !important;
+  height: 32px !important;
+  font-size: 0.875rem !important;
+}
+
+/* Compact icon button elements */
+.MuiIconButton-root {
+  padding: 6px !important;
+}
+
+.MuiIconButton-sizeSmall {
+  padding: 4px !important;
+}
+
+/* Compact stepper elements */
+.MuiStepper-root {
+  font-size: 0.8rem !important;
+}
+
+.MuiStepLabel-root {
+  font-size: 0.8rem !important;
+}
+
+/* Compact tabs elements */
+.MuiTabs-root {
+  font-size: 0.875rem !important;
+}
+
+.MuiTab-root {
+  font-size: 0.875rem !important;
+  padding: 8px 12px !important;
+}
+
+/* Compact accordion elements */
+.MuiAccordion-root {
+  font-size: 0.875rem !important;
+}
+
+.MuiAccordionSummary-root {
+  padding: 8px 12px !important;
+}
+
+.MuiAccordionDetails-root {
+  padding: 12px !important;
+}
+
+/* Compact progress elements */
+.MuiLinearProgress-root {
+  height: 4px !important;
+}
+
+.MuiCircularProgress-root {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+/* Compact alert elements */
+.MuiAlert-root {
+  font-size: 0.875rem !important;
+  padding: 8px 12px !important;
+}
+
+/* Compact tooltip elements */
+.MuiTooltip-tooltip {
+  font-size: 0.75rem !important;
+}
+
+/* Compact menu elements */
+.MuiMenu-paper {
+  border-radius: 8px !important;
+}
+
+.MuiMenuItem-root {
+  font-size: 0.875rem !important;
+  padding: 8px 16px !important;
+}
+
+/* Compact drawer elements */
+.MuiDrawer-paper {
+  border-radius: 0 12px 12px 0 !important;
+}
+
+/* Compact app bar elements */
+.MuiAppBar-root {
+  height: 56px !important;
+}
+
+.MuiToolbar-root {
+  min-height: 56px !important;
+  padding: 0 16px !important;
+}
+
+/* Compact paper elements */
+.MuiPaper-root {
+  border-radius: 12px !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  html {
+    font-size: 13px;
+  }
+  
+  .MuiButton-root {
+    font-size: 0.75rem !important;
+    padding: 6px 12px !important;
+  }
+  
+  .MuiTypography-h1 {
+    font-size: 1.75rem !important;
+  }
+  
+  .MuiTypography-h2 {
+    font-size: 1.5rem !important;
+  }
+  
+  .MuiTypography-h3 {
+    font-size: 1.25rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  html {
+    font-size: 12px;
+  }
+  
+  .MuiButton-root {
+    font-size: 0.7rem !important;
+    padding: 4px 8px !important;
+  }
+  
+  .MuiTypography-h1 {
+    font-size: 1.5rem !important;
+  }
+  
+  .MuiTypography-h2 {
+    font-size: 1.25rem !important;
+  }
+}
+
+
+
+
+

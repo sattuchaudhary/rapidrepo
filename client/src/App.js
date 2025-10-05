@@ -1,10 +1,12 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Box, CircularProgress } from '@mui/material';
+import { Box, CircularProgress, ThemeProvider } from '@mui/material';
+import theme from './styles/theme';
+import './styles/global.css';
 
 import { useAuth } from './contexts/AuthContext';
 import LandingPage from './components/LandingPage';
-import Login from './components/auth/Login';
+import ModernLogin from './components/auth/ModernLogin';
 import Register from './components/auth/Register';
 import Dashboard from './components/dashboard/Dashboard';
 import AdminDashboard from './components/admin/AdminDashboard';
@@ -34,7 +36,8 @@ function App() {
   }
 
   return (
-    <Routes>
+    <ThemeProvider theme={theme}>
+      <Routes>
       {/* Landing page - always accessible */}
       <Route path="/" element={<LandingPage />} />
       
@@ -45,7 +48,7 @@ function App() {
           isAuthenticated ? (
             <Navigate to={user?.role === 'super_admin' ? '/app/admin' : user?.role === 'admin' ? '/app/tenant' : '/app/dashboard'} replace />
           ) : (
-            <Login />
+            <ModernLogin />
           )
         }
       />
@@ -178,6 +181,7 @@ function App() {
       {/* Catch all route */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </ThemeProvider>
   );
 }
 

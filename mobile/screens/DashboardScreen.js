@@ -10,6 +10,8 @@ import axios from 'axios';
 import { getBaseURL } from '../utils/config';
 import * as FileSystem from 'expo-file-system/legacy';
 import { singleClickPerFileSync } from '../utils/fileSync';
+import UpdateNotification from '../components/UpdateNotification';
+import versionManager from '../utils/versionManager';
 // removed: background task imports not needed on simplified dashboard
 
 
@@ -592,6 +594,7 @@ import { countVehicles, searchByRegSuffix, searchByChassis, searchByRegSuffixPar
 import { simpleSync, markSyncCompleted } from '../utils/simpleSync';
 import { smartSync, getIncrementalSyncStatus } from '../utils/incrementalSync';
 import { singleBatchSync } from '../utils/hybridSync';
+import { getCachedAgent, getCachedSettings, preloadCriticalData } from '../utils/fastInit';
 
 // Main Dashboard Component
 export default function DashboardScreen({ navigation }) {
@@ -648,6 +651,8 @@ export default function DashboardScreen({ navigation }) {
     downloadedRecords: 0
   });
   const headerIconColor = isDark ? '#FFFFFF' : '#111827';
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [availableUpdateInfo, setAvailableUpdateInfo] = useState(null);
   
   // Use shared utils/db for offline store used by sync
 
@@ -662,44 +667,87 @@ export default function DashboardScreen({ navigation }) {
   useEffect(() => {
     (async () => {
       try {
-        const stored = await SecureStore.getItemAsync('agent');
-        if (stored) setAgent(JSON.parse(stored));
-
-        // Initialize shared DB and load count
-        const count = await countVehicles();
-        setLocalCount(typeof count === 'number' ? count : 0);
-        const flag = await SecureStore.getItemAsync('sync_complete_flag');
-        setIsSyncComplete(flag === 'true');
+        // Use fast cached data for immediate UI update
+        const [cachedAgent, cachedSettings] = await Promise.all([
+          getCachedAgent(),
+          getCachedSettings()
+        ]);
         
-        // Load data multiplier setting from server
-        await loadMultiplierFromServer();
-        
-        if (count > 0) {
-          const lastSync = await SecureStore.getItemAsync('lastSyncTime');
-          if (lastSync) {
-            setLastDownloadedAt(new Date(lastSync).toLocaleString());
-            setLastSyncTime(lastSync);
+        // Set cached data immediately for instant UI
+        if (cachedAgent) setAgent(cachedAgent);
+        if (cachedSettings) {
+          setIsSyncComplete(cachedSettings.syncComplete);
+          if (cachedSettings.lastSyncTime) {
+            setLastDownloadedAt(new Date(cachedSettings.lastSyncTime).toLocaleString());
+            setLastSyncTime(cachedSettings.lastSyncTime);
+          }
+          if (cachedSettings.syncProgress) {
+            try {
+              const progress = JSON.parse(cachedSettings.syncProgress);
+              setSyncProgress(progress);
+            } catch (error) {
+              console.error('Error parsing cached sync progress:', error);
+            }
           }
         }
-
-        console.log(`SQLite loaded with ${count} records`);
         
-        // Load sync progress if exists
-        const storedProgress = await SecureStore.getItemAsync('sync_progress');
-        if (storedProgress) {
+        // Defer heavy database operations
+        setTimeout(async () => {
           try {
-            const progress = JSON.parse(storedProgress);
-            setSyncProgress(progress);
-            console.log('📊 Loaded sync progress:', progress);
+            // Initialize shared DB and load count
+            const count = await countVehicles();
+            setLocalCount(typeof count === 'number' ? count : 0);
+            console.log(`SQLite loaded with ${count} records`);
           } catch (error) {
-            console.error('Error loading sync progress:', error);
+            console.error('Error loading database data:', error);
           }
-        }
+        }, 200);
+
+        // Defer server operations even more
+        setTimeout(async () => {
+          try {
+            // Load data multiplier setting from server
+            await loadMultiplierFromServer();
+            // Subscription check: if expired, redirect to Payment screen
+            try {
+              const token = await SecureStore.getItemAsync('token');
+              if (token) {
+                const res = await axios.get(`${getBaseURL()}/api/tenants/subscription/remaining`, {
+                  headers: { Authorization: `Bearer ${token}` },
+                  timeout: 8000
+                });
+                const remainingMs = res?.data?.data?.remainingMs || 0;
+                if (remainingMs <= 0) {
+                  navigation.replace('Payment');
+                  return;
+                }
+              }
+            } catch (_) {}
+            
+            // Check for new records on app startup
+            await checkForNewRecords();
+          } catch (error) {
+            console.error('Error loading server data:', error);
+          }
+        }, 1500);
         
-        // Check for new records on app startup
-        await checkForNewRecords();
       } catch (error) {
         console.error('Error loading data:', error);
+      }
+    })();
+  }, []);
+
+  // Check for app updates on dashboard load
+  useEffect(() => {
+    (async () => {
+      try {
+        const info = await versionManager.getUpdateInfo();
+        if (info && info.isAvailable) {
+          setAvailableUpdateInfo(info);
+          setShowUpdateModal(true);
+        }
+      } catch (e) {
+        // silent
       }
     })();
   }, []);
@@ -1129,11 +1177,15 @@ export default function DashboardScreen({ navigation }) {
     try {
       const res = await singleClickPerFileSync((p) => {
         try {
-          const totalFiles = Math.max(1, parseInt(p?.totalFiles || 1));
-          const processed = Math.min(totalFiles, parseInt(p?.processedFiles || 0));
-          const pct = Math.min(99, Math.round((processed / totalFiles) * 100));
-          setDownloadProgress(pct);
-          setDownloadStatus(p?.currentFile ? `Downloading: ${p.currentFile}` : 'Downloading...');
+          // Use the enhanced progress tracking with percentage calculation
+          const percentage = p?.percentage || 0;
+          setDownloadProgress(percentage);
+          
+          if (p?.currentFile) {
+            setDownloadStatus(`Downloading: ${p.currentFile} (${p.downloadedRecords || 0}/${p.totalRecords || 0} records)`);
+          } else {
+            setDownloadStatus('Downloading...');
+          }
         } catch (_) {}
       }, 50000);
 
@@ -1144,18 +1196,21 @@ export default function DashboardScreen({ navigation }) {
       setDownloadProgress(100);
       setDownloadStatus('Sync complete');
 
-      Alert.alert('Sync Complete', `Files processed: ${res.filesProcessed}\nInserted: ${res.totalInserted.toLocaleString()}\nLocal total: ${updatedCount.toLocaleString()}`);
+      // Auto-close modal when 100% is reached - no completion alert
+      setTimeout(() => {
+        setShowLoadingOverlay(false);
+        setLoadingMessage('');
+        setDownloading(false);
+      }, 1000);
     } catch (error) {
       console.error('Per-file sync failed:', error);
       setDownloadStatus('Sync failed');
       Alert.alert('Sync Failed', error?.message || 'Unable to sync');
     } finally {
-      setShowLoadingOverlay(false);
-      setLoadingMessage('');
-      setTimeout(() => setDownloading(false), 600);
       await refreshLocalCount();
     }
   };
+
 
   const refreshLocalCount = async () => {
     try {
@@ -1333,23 +1388,25 @@ export default function DashboardScreen({ navigation }) {
         </Text>
       </Animated.View>
 
-      {/* Stats cards */}
-      <Animated.View style={[styles.statsGrid, { opacity: contentFade, transform: [{ translateY: contentSlide }] }]}>
-        <View style={[styles.statCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
-          <View>
-            <Text style={[styles.statLabel, { color: theme.statLabel }]}>Local Records</Text>
-            <Text style={[styles.statValue, { color: theme.textPrimary }]}>{String((localCount || 0) * dataMultiplier)}</Text>
+      {/* Stats cards (hidden as requested) */}
+      {false && (
+        <Animated.View style={[styles.statsGrid, { opacity: contentFade, transform: [{ translateY: contentSlide }] }]}>
+          <View style={[styles.statCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
+            <View>
+              <Text style={[styles.statLabel, { color: theme.statLabel }]}>Local Records</Text>
+              <Text style={[styles.statValue, { color: theme.textPrimary }]}>{String((localCount || 0) * dataMultiplier)}</Text>
+            </View>
+            <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>🗃️</Text></View>
           </View>
-          <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>🗃️</Text></View>
-        </View>
-        <View style={[styles.statCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
-          <View>
-            <Text style={[styles.statLabel, { color: theme.statLabel }]}>Sync Status</Text>
-            <Text style={[styles.statValue, { color: theme.textPrimary }]}>{isOfflineMode ? 'Offline' : 'Online'}</Text>
+          <View style={[styles.statCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
+            <View>
+              <Text style={[styles.statLabel, { color: theme.statLabel }]}>Sync Status</Text>
+              <Text style={[styles.statValue, { color: theme.textPrimary }]}>{isOfflineMode ? 'Offline' : 'Online'}</Text>
+            </View>
+            <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>{isOfflineMode ? '📴' : '📶'}</Text></View>
           </View>
-          <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>{isOfflineMode ? '📴' : '📶'}</Text></View>
-        </View>
-      </Animated.View>
+        </Animated.View>
+      )}
 
       {/* Sync Progress Card - Show only when sync is in progress */}
       {syncProgress.currentBatch > 0 && (
@@ -1493,10 +1550,11 @@ export default function DashboardScreen({ navigation }) {
               style={styles.fullWidthActionBtn}
               onPress={async () => {
                 if (downloading) return;
+                if (!needsSync) return;
                 await refreshLocalCount();
                 await syncPerFile();
               }}
-              disabled={downloading}
+              disabled={downloading || !needsSync}
             >
               <View style={styles.actionBtnContent}>
                 <Text style={styles.actionBtnIcon}>
@@ -1504,16 +1562,10 @@ export default function DashboardScreen({ navigation }) {
                 </Text>
                 <View style={styles.actionBtnTextContainer}>
                   <Text style={[styles.actionBtnTitle, { color: '#FFFFFF' }]}>
-                    {downloading ? 'Syncing...' : 
-                     (syncProgress.currentBatch > 0 ? `Batch ${syncProgress.currentBatch}/${syncProgress.totalBatches}` :
-                      (needsSync ? 'Sync Data' : 
-                       (isSyncComplete ? 'Sync Data' : 'Sync Data')))}
+                    {downloading ? 'Syncing...' : (needsSync ? 'Sync Data' : 'Up to date')}
                   </Text>
                   <Text style={[styles.actionBtnSubtitle, { color: 'rgba(255,255,255,0.9)' }]}>
-                    {downloading ? 'Please wait' : 
-                     (syncProgress.currentBatch > 0 ? `${syncProgress.downloadedRecords.toLocaleString()} rec` :
-                      (needsSync ? 'New available' : 
-                       (isSyncComplete ? 'Complete' : 'Start sync')))}
+                    {downloading ? 'Please wait' : (needsSync ? 'New data available' : 'No new data')}
                   </Text>
                 </View>
               </View>
@@ -1554,9 +1606,14 @@ export default function DashboardScreen({ navigation }) {
           </View>
         </View>
       )}
-
-
-
+      {/* Update Notification Modal */}
+      {showUpdateModal && (
+        <UpdateNotification
+          visible={showUpdateModal}
+          onClose={() => setShowUpdateModal(false)}
+          updateInfo={availableUpdateInfo}
+        />
+      )}
 
       {/* Simple left drawer */}
       <Modal visible={drawerOpen} transparent animationType="none" onRequestClose={() => setDrawerOpen(false)}>

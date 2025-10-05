@@ -66,6 +66,18 @@ const tenantSchema = new mongoose.Schema({
         },
         message: 'Data multiplier must be 1, 2, 3, 4, 5, or 6'
       }
+    },
+    paymentConfig: {
+      upiId: { type: String, trim: true, default: '' },
+      payeeName: { type: String, trim: true, default: '' },
+      qrCodeImageUrl: { type: String, trim: true, default: '' },
+      instructions: { type: String, trim: true, default: '' },
+      planPrices: {
+        weekly: { type: Number, default: 0, min: 0 },
+        monthly: { type: Number, default: 0, min: 0 },
+        quarterly: { type: Number, default: 0, min: 0 },
+        yearly: { type: Number, default: 0, min: 0 }
+      }
     }
   },
   createdBy: {

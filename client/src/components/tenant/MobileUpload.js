@@ -109,7 +109,7 @@ const MobileUpload = () => {
   const [pendingAction, setPendingAction] = useState(''); // 'preview' | 'upload'
 
   const standardFields = [
-    'location','bankName','agreementNumber','customerName','vehicleMake','registrationNumber','engineNumber','chassisNumber','emiAmount','pos','bucketStatus','address','branchName','firstConfirmedName','firstConfirmerPhone','secondConfirmedName','secondConfirmerPhone','thirdConfirmerName','thirdConfirmerPhone','zone','areaOffice','region','allocation','vehicleModel','productName'
+    'reg_Number','cust_Name','location','bankName','Loan_No','Make','engineNumber','chassisNumber','emiAmount','pos','bkts','address','branchName','1st_Name','1st_Phone','2nd_Name','2nd_Phone','3rd_Name','3rd_Phone','zone','areaOffice','region','allocation','Model','productName'
   ];
 
   const hasMappedFields = React.useMemo(() => {
@@ -683,11 +683,11 @@ const MobileUpload = () => {
       )}
 
       {/* Main Content */}
-      <Grid container spacing={3}>
+      <Grid container spacing={{ xs: 2, md: 3 }}>
         {/* Left Side - Upload Form */}
         <Grid item xs={12} md={8}>
           <Card sx={{ mb: 1 }}>
-            <CardContent sx={{ py: 1, px: 2 }}>
+            <CardContent sx={{ py: { xs: 2, md: 1 }, px: { xs: 2, md: 2 } }}>
               {/* Compact layout - no stepper */}
 
               {/* Step 1: Vehicle Type & Bank Selection */}
@@ -697,8 +697,8 @@ const MobileUpload = () => {
                     Step 1: Select Vehicle Type & Bank
                   </Typography>
                   
-                  <Grid container spacing={3}>
-          <Grid item xs={12} md={6}>
+                  <Grid container spacing={{ xs: 2, md: 3 }}>
+                    <Grid item xs={12} md={6}>
                       <FormControl fullWidth>
                         <InputLabel>Vehicle Type *</InputLabel>
                         <Select
@@ -725,9 +725,9 @@ const MobileUpload = () => {
                               Commercial Vehicle
                             </Box>
                           </MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
+                        </Select>
+                      </FormControl>
+                    </Grid>
 
                     <Grid item xs={12} md={6}>
                       <FormControl fullWidth>
@@ -762,12 +762,12 @@ const MobileUpload = () => {
                               </MenuItem>
                             ))
                           )}
-              </Select>
-            </FormControl>
-          </Grid>
+                        </Select>
+                      </FormControl>
+                    </Grid>
                   </Grid>
 
-                  <Box sx={{ mt: 3, display: 'flex', gap: 2 }}>
+                  <Box sx={{ mt: 3, display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
                     <Button
                       variant="contained"
                       onClick={() => setActiveStep(1)}
@@ -1015,7 +1015,7 @@ const MobileUpload = () => {
             {!hasMappedFields && (
               <Alert severity="error" sx={{ mt: 2 }}>
                 <Typography variant="subtitle2" gutterBottom>
-                  Upload Requirements:
+                  {/* Upload Requirements: */}
                 </Typography>
                 <ul style={{ margin: 0, paddingLeft: '20px' }}>
                   <li>Registration Number mapping is mandatory</li>
@@ -1031,23 +1031,24 @@ const MobileUpload = () => {
           </Paper>
           
           <Paper>
-            <TableContainer sx={{ maxHeight: 500 }}>
-            <Table stickyHeader>
+            <TableContainer sx={{ maxHeight: { xs: 400, md: 500 }, overflowX: 'auto' }}>
+            <Table stickyHeader size="small">
               <TableHead>
                   <TableRow>
                     {headers.map(h => (
-                      <TableCell key={h}>
+                      <TableCell key={h} sx={{ minWidth: 150 }}>
                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                           <Typography variant="caption" sx={{ 
                             fontWeight: 'bold',
-                            color: columnMapping[h] === 'registrationNumber' ? 'error.main' : 'inherit'
+                            color: columnMapping[h] === 'registrationNumber' ? 'error.main' : 'inherit',
+                            fontSize: { xs: '0.7rem', md: '0.75rem' }
                           }}>
                             {h}
                             {columnMapping[h] === 'registrationNumber' && ' 🔴 (REG NO)'}
                           </Typography>
                           <Autocomplete
                             size="small"
-                            options={getAvailableOptions(h)} // Use filtered options to prevent duplicates
+                            options={getAvailableOptions(h)}
                             value={columnMapping[h] || ''}
                             onChange={(e, val) => setColumnMapping({ ...columnMapping, [h]: val || '' })}
                             disabled={isLoadingUpload || isUploading}
@@ -1058,13 +1059,14 @@ const MobileUpload = () => {
                                 variant="outlined"
                                 color={columnMapping[h] ? "success" : "warning"}
                                 disabled={isLoadingUpload || isUploading}
+                                size="small"
                               />
                             )}
                             renderOption={(props, option) => (
                               <li {...props}>
                                 {option === '' ? (
                                   <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                                    Don't map (ignore column)
+                                    {/* Don't map (ignore column) */}
                                   </Typography>
                                 ) : (
                                   <Box>
@@ -1077,7 +1079,7 @@ const MobileUpload = () => {
                                     </Typography>
                                     {(option === 'registrationNumber' || option.includes('Phone') || option === 'engineNumber' || option === 'chassisNumber') && (
                                       <Typography variant="caption" color="info.main" sx={{ fontSize: '0.65rem', display: 'block' }}>
-                                        ✨ Auto-formatted (removes spaces/hyphens)
+                                        {/* ✨ Auto-formatted (removes spaces/hyphens) */}
                                       </Typography>
                                     )}
                                   </Box>
@@ -1087,12 +1089,12 @@ const MobileUpload = () => {
                           />
                           {!columnMapping[h] ? (
                             <Typography variant="caption" color="warning.main" sx={{ fontSize: '0.7rem' }}>
-                              ⚠️ This column will be ignored
+                              ⚠️will be ignored
                             </Typography>
                           ) : (
                             (columnMapping[h] === 'registrationNumber' || columnMapping[h].includes('Phone') || columnMapping[h] === 'engineNumber' || columnMapping[h] === 'chassisNumber') && (
                               <Typography variant="caption" color="info.main" sx={{ fontSize: '0.7rem' }}>
-                                ✨ Data will be auto-formatted
+                                {/* ✨ Data will be auto-formatted */}
                               </Typography>
                             )
                           )}
@@ -1102,10 +1104,15 @@ const MobileUpload = () => {
                   </TableRow>
               </TableHead>
               <TableBody>
-                  {rawRows.map((r, idx) => (
+                  {rawRows.slice(0, 10).map((r, idx) => (
                     <TableRow key={idx}>
                       {headers.map(h => (
-                        <TableCell key={h}>{String(r[h] ?? '')}</TableCell>
+                        <TableCell key={h} sx={{ fontSize: { xs: '0.7rem', md: '0.875rem' } }}>
+                          {String(r[h] ?? '').length > 20 ? 
+                            `${String(r[h] ?? '').substring(0, 20)}...` : 
+                            String(r[h] ?? '')
+                          }
+                        </TableCell>
                       ))}
                   </TableRow>
                 ))}

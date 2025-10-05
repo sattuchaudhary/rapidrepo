@@ -18,7 +18,9 @@ import {
   ListItemIcon,
   ListItemText,
   ListItemButton,
-  useTheme
+  useTheme,
+  useMediaQuery,
+  Drawer
 } from '@mui/material';
 import {
   Person as PersonIcon,
@@ -28,19 +30,22 @@ import {
   Dashboard as DashboardIcon,
   People as PeopleIcon,
   Business as BusinessIcon,
-  AdminPanelSettings as AdminIcon
+  AdminPanelSettings as AdminIcon,
+  Menu as MenuIcon
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-const drawerWidth = 280;
+const drawerWidth = 260;
 
 const Layout = () => {
   const [anchorEl, setAnchorEl] = useState(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isSuperAdmin = user?.role === 'super_admin';
 
   const handleProfileMenuOpen = (event) => {
@@ -58,6 +63,13 @@ const Layout = () => {
 
   const handleNavigation = (path) => {
     navigate(path);
+    if (isMobile) {
+      setMobileOpen(false);
+    }
+  };
+
+  const handleDrawerToggle = () => {
+    setMobileOpen(!mobileOpen);
   };
 
   const menuItems = [
@@ -87,97 +99,136 @@ const Layout = () => {
 
   console.log('Layout rendering:', { user, isSuperAdmin });
 
+  const drawer = (
+    <Box>
+      {/* Sidebar Header */}
+      <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+          <img 
+            src="/logo192.png" 
+            alt="RapidRepo Logo" 
+            style={{ 
+              width: 28, 
+              height: 28, 
+              marginRight: 8,
+              objectFit: 'contain'
+            }} 
+          />
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            RapidRepo
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <Avatar sx={{ mr: 2, bgcolor: 'secondary.main' }}>
+            {user?.firstName?.charAt(0)?.toUpperCase()}
+          </Avatar>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              {user?.firstName} {user?.lastName}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {user?.email}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+
+      {/* Sidebar Menu */}
+      <List sx={{ py: 2 }}>
+        {menuItems
+          .filter(item => !item.show || item.show)
+          .map((item) => (
+            <ListItem key={item.text} disablePadding>
+              <ListItemButton
+                onClick={() => handleNavigation(item.path)}
+                selected={location.pathname === item.path}
+                sx={{
+                  mx: 1,
+                  borderRadius: 1,
+                  '&.Mui-selected': {
+                    backgroundColor: theme.palette.primary.main + '20',
+                    color: theme.palette.primary.main,
+                    '&:hover': {
+                      backgroundColor: theme.palette.primary.main + '30',
+                    },
+                    '& .MuiListItemIcon-root': {
+                      color: theme.palette.primary.main,
+                    },
+                  },
+                }}
+              >
+                <ListItemIcon>{item.icon}</ListItemIcon>
+                <ListItemText primary={item.text} />
+              </ListItemButton>
+            </ListItem>
+          ))}
+      </List>
+    </Box>
+  );
+
   return (
     <Box sx={{ display: 'flex' }}>
-      {/* Sidebar */}
+      {/* Mobile Drawer */}
+      <Drawer
+        variant="temporary"
+        open={mobileOpen}
+        onClose={handleDrawerToggle}
+        ModalProps={{
+          keepMounted: true, // Better open performance on mobile.
+        }}
+        sx={{
+          display: { xs: 'block', md: 'none' },
+          '& .MuiDrawer-paper': {
+            boxSizing: 'border-box',
+            width: drawerWidth,
+            backgroundColor: '#f5f5f5',
+            borderRight: `2px solid ${theme.palette.primary.main}`,
+          },
+        }}
+      >
+        {drawer}
+      </Drawer>
+
+      {/* Desktop Sidebar */}
       <Box
         sx={{
           width: drawerWidth,
           height: '100vh',
-          backgroundColor: '#f5f5f5',
-          borderRight: `2px solid ${theme.palette.primary.main}`,
+          background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+          borderRight: `1px solid #e2e8f0`,
           position: 'fixed',
           left: 0,
           top: 0,
           zIndex: 1200,
-          overflowY: 'auto'
+          overflowY: 'auto',
+          display: { xs: 'none', md: 'block' },
+          boxShadow: '4px 0 6px -1px rgb(0 0 0 / 0.1), 2px 0 4px -2px rgb(0 0 0 / 0.1)'
         }}
       >
-        {/* Sidebar Header */}
-        <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <img 
-              src="/logo192.png" 
-              alt="RapidRepo Logo" 
-              style={{ 
-                width: 28, 
-                height: 28, 
-                marginRight: 8,
-                objectFit: 'contain'
-              }} 
-            />
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              RapidRepo
-            </Typography>
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <Avatar sx={{ mr: 2, bgcolor: 'secondary.main' }}>
-              {user?.firstName?.charAt(0)?.toUpperCase()}
-            </Avatar>
-            <Box>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                {user?.firstName} {user?.lastName}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {user?.email}
-              </Typography>
-            </Box>
-          </Box>
-        </Box>
-
-        {/* Sidebar Menu */}
-        <List sx={{ py: 2 }}>
-          {menuItems
-            .filter(item => !item.show || item.show)
-            .map((item) => (
-              <ListItem key={item.text} disablePadding>
-                <ListItemButton
-                  onClick={() => handleNavigation(item.path)}
-                  selected={location.pathname === item.path}
-                  sx={{
-                    mx: 1,
-                    borderRadius: 1,
-                    '&.Mui-selected': {
-                      backgroundColor: theme.palette.primary.main + '20',
-                      color: theme.palette.primary.main,
-                      '&:hover': {
-                        backgroundColor: theme.palette.primary.main + '30',
-                      },
-                      '& .MuiListItemIcon-root': {
-                        color: theme.palette.primary.main,
-                      },
-                    },
-                  }}
-                >
-                  <ListItemIcon>{item.icon}</ListItemIcon>
-                  <ListItemText primary={item.text} />
-                </ListItemButton>
-              </ListItem>
-            ))}
-        </List>
+        {drawer}
       </Box>
 
       {/* AppBar */}
       <AppBar
         position="fixed"
         sx={{
-          width: `calc(100% - ${drawerWidth}px)`,
-          ml: `${drawerWidth}px`,
-          background: `linear-gradient(90deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
-          boxShadow: theme.shadows[4]
+          width: { xs: '100%', md: `calc(100% - ${drawerWidth}px)` },
+          ml: { xs: 0, md: `${drawerWidth}px` },
+          background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
+          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+          backdropFilter: 'blur(20px)'
         }}
       >
         <Toolbar>
+          <IconButton
+            color="inherit"
+            aria-label="open drawer"
+            edge="start"
+            onClick={handleDrawerToggle}
+            sx={{ mr: 2, display: { md: 'none' } }}
+          >
+            <MenuIcon />
+          </IconButton>
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
             {location.pathname === '/app/admin' ? 'Admin Dashboard' :
              location.pathname === '/app/admin/users' ? 'User Management' :
@@ -228,10 +279,11 @@ const Layout = () => {
         component="main"
         sx={{
           flexGrow: 1,
-          p: 3,
-          ml: `${drawerWidth}px`,
+          p: { xs: 1, md: 1.5 }, // Reduced padding
+          ml: { xs: 0, md: `${drawerWidth}px` },
           background: theme.palette.background.default,
-          minHeight: '100vh'
+          minHeight: '100vh',
+          width: { xs: '100%', md: `calc(100% - ${drawerWidth}px)` }
         }}
       >
         <Toolbar />

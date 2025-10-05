@@ -194,6 +194,17 @@ export const singleClickPerFileSync = async (onProgress = null, limit = 50000) =
   let processed = 0;
   let skipped = 0;
   let totalInserted = 0;
+  let totalRecords = 0;
+
+  // Calculate total records to download for progress tracking
+  for (const f of files) {
+    const meta = metaByName.get(f.fileName);
+    if (!(meta?.completed && meta?.total && meta?.downloaded >= meta?.total)) {
+      totalRecords += Math.min(limit, parseInt(f.total || 0));
+    }
+  }
+
+  let downloadedRecords = 0;
 
   for (const f of files) {
     const meta = metaByName.get(f.fileName);
@@ -201,22 +212,41 @@ export const singleClickPerFileSync = async (onProgress = null, limit = 50000) =
       skipped++;
       continue;
     }
-    let hasMore = true;
-    while (hasMore) {
-      const res = await downloadNextForFile(f.fileName, { limit });
-      totalInserted += res.inserted;
-      hasMore = res.hasMore;
-      if (onProgress) {
-        try { onProgress({ processedFiles: processed, totalFiles: files.length, inserted: totalInserted, currentFile: f.fileName }); } catch (_) {}
-      }
-    }
-    processed++;
+    
+    // Download only one batch (50k records) per file per sync
+    const res = await downloadNextForFile(f.fileName, { limit });
+    totalInserted += res.inserted;
+    downloadedRecords += res.downloaded;
+    
     if (onProgress) {
-      try { onProgress({ processedFiles: processed, totalFiles: files.length, inserted: totalInserted, currentFile: f.fileName }); } catch (_) {}
+      try { 
+        // Calculate percentage based on downloaded records vs total records
+        const percentage = totalRecords > 0 ? Math.min(99, Math.round((downloadedRecords / totalRecords) * 100)) : 0;
+        
+        onProgress({ 
+          processedFiles: processed, 
+          totalFiles: files.length, 
+          inserted: totalInserted, 
+          downloadedRecords: downloadedRecords,
+          totalRecords: totalRecords,
+          percentage: percentage,
+          currentFile: f.fileName
+        }); 
+      } catch (_) {}
     }
+    
+    processed++;
   }
-  return { success: true, filesProcessed: processed, filesSkipped: skipped, totalFiles: files.length, totalInserted };
+  
+  return { 
+    success: true, 
+    filesProcessed: processed, 
+    filesSkipped: skipped, 
+    totalFiles: files.length, 
+    totalInserted
+  };
 };
+
 
 export const debugFileComparison = async () => { return; };
 
