@@ -96,7 +96,7 @@ export const AuthProvider = ({ children }) => {
     try {
       if (state.token) {
         setAuthToken(state.token);
-        const res = await axios.get('http://localhost:5000/api/unified-auth/profile');
+        const res = await axios.get('/api/unified-auth/profile');
         dispatch({
           type: AUTH_ACTIONS.USER_LOADED,
           payload: res.data.data.user
@@ -115,7 +115,7 @@ export const AuthProvider = ({ children }) => {
     try {
       dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: true });
       
-      const res = await axios.post('http://localhost:5000/api/unified-auth/login', { 
+      const res = await axios.post('/api/unified-auth/login', { 
         identifier, 
         password 
       });
@@ -144,7 +144,7 @@ export const AuthProvider = ({ children }) => {
     try {
       dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: true });
       
-      const res = await axios.post('http://localhost:5000/api/auth/register', userData);
+      const res = await axios.post('/api/auth/register', userData);
       
       dispatch({
         type: AUTH_ACTIONS.LOGIN_SUCCESS,
@@ -165,7 +165,7 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       if (state.token) {
-        await axios.post('http://localhost:5000/api/auth/logout');
+        await axios.post('/api/auth/logout');
       }
     } catch (error) {
       console.error('Logout error:', error);
@@ -178,7 +178,7 @@ export const AuthProvider = ({ children }) => {
   // Update profile
   const updateProfile = async (profileData) => {
     try {
-      const res = await axios.put('http://localhost:5000/api/auth/profile', profileData);
+      const res = await axios.put('/api/auth/profile', profileData);
       
       dispatch({
         type: AUTH_ACTIONS.USER_LOADED,
@@ -197,7 +197,7 @@ export const AuthProvider = ({ children }) => {
   // Change password
   const changePassword = async (passwordData) => {
     try {
-      await axios.put('http://localhost:5000/api/auth/change-password', passwordData);
+      await axios.put('/api/auth/change-password', passwordData);
       toast.success('Password changed successfully!');
       return { success: true };
     } catch (error) {
