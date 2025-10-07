@@ -24,8 +24,11 @@ const getTenantDB = async (tenantName) => {
 
   // Build tenant URI safely regardless of base DB name
   const baseUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/rapidrepo';
-  // Replace the last path segment with tenant DB name
-  const tenantUri = baseUri.replace(/\/?[^/]+$/, '/') + dbName;
+  // Preserve query string (e.g., authSource) when deriving tenant URI
+  const [baseWithoutQuery, queryString] = baseUri.split('?');
+  // Replace the last path segment (db name) with tenant DB name
+  const derivedBase = baseWithoutQuery.replace(/\/?[^/]+$/, '/') + dbName;
+  const tenantUri = queryString ? `${derivedBase}?${queryString}` : derivedBase;
 
   const conn = mongoose.createConnection(tenantUri, {
     useNewUrlParser: true,
