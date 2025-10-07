@@ -6,7 +6,8 @@ const bcrypt = require('bcryptjs');
 const { authenticateUnifiedToken, requireAdmin } = require('../middleware/unifiedAuth');
 const mongoose = require('mongoose');
 const Tenant = require('../models/Tenant');
-// We'll use a local helper to connect to tenant DB to match previous working behavior
+// Use centralized helper which preserves credentials and query string (authSource)
+const { getTenantDB: getTenantDBCentral } = require('../config/database');
 
 // Public: Repo Agent login (tenant-scoped)
 router.post('/agents/login', async (req, res) => {
@@ -292,27 +293,23 @@ router.get('/test-connection', async (req, res) => {
   }
 });
 
-// Function to get tenant-specific database connection (local, dev-friendly)
+// Adapter to the centralized getTenantDB (fallback keeps query string if needed)
 const getTenantDB = async (tenantName) => {
-  try {
-    const dbName = `tenants_${tenantName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-    if (mongoose.connections.some(conn => conn.name === dbName)) {
-      return mongoose.connections.find(conn => conn.name === dbName);
-    }
-    const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/rapidrepo';
-    const base = uri.replace(/\/?[^/]+$/, '/');
-    const tenantUri = `${base}${dbName}`;
-    const tenantConnection = mongoose.createConnection(tenantUri, { useNewUrlParser: true, useUnifiedTopology: true });
-    await new Promise((resolve, reject) => {
-      tenantConnection.once('connected', resolve);
-      tenantConnection.once('error', reject);
-      setTimeout(() => reject(new Error(`Connection timeout to ${dbName}`)), 5000);
-    });
-    return tenantConnection;
-  } catch (error) {
-    console.error(`Error connecting to tenant database: ${error.message}`);
-    throw error;
+  if (typeof getTenantDBCentral === 'function') {
+    return getTenantDBCentral(tenantName);
   }
+  const dbName = `tenants_${tenantName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+  const baseUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/rapidrepo';
+  const [baseWithoutQuery, queryString] = baseUri.split('?');
+  const derivedBase = baseWithoutQuery.replace(/\/?[^/]+$/, '/') + dbName;
+  const tenantUri = queryString ? `${derivedBase}?${queryString}` : derivedBase;
+  const conn = mongoose.createConnection(tenantUri, { useNewUrlParser: true, useUnifiedTopology: true });
+  await new Promise((resolve, reject) => {
+    conn.once('connected', resolve);
+    conn.once('error', reject);
+    setTimeout(() => reject(new Error(`Connection timeout to ${dbName}`)), 5000);
+  });
+  return conn;
 };
 
 // Helper: Get next sequential number per tenant for a given key
