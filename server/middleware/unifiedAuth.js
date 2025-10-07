@@ -15,46 +15,49 @@ const authenticateUnifiedToken = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // Set user info in request
-    req.user = {
-      userId: decoded.userId || decoded.agentId || decoded.staffId || null,
-      agentId: decoded.agentId || null,
-      staffId: decoded.staffId || null,
-      userType: decoded.userType || decoded.type || 'repo_agent',
-      role: decoded.role || 'agent',
-      tenantId: decoded.tenantId || null,
-      tenantName: decoded.tenantName || null
-    };
 
-    // For main users, verify they still exist and are active
-    if (decoded.userType === 'main_user') {
-      const user = await User.findById(decoded.userId).select('-password');
-      
-      console.log('🔐 Checking main user:', decoded.userId, 'Found:', !!user, 'Active:', user?.isActive);
-      
+    // Normalize decoded fields
+    const decodedUserId = decoded.userId || decoded.agentId || decoded.staffId || null;
+    let decodedUserType = decoded.userType || decoded.type || null;
+    let decodedRole = decoded.role || null;
+    let decodedTenantId = decoded.tenantId || null;
+    const decodedTenantName = decoded.tenantName || null;
+
+    // Backward compatibility: tokens issued by /api/auth login don't include userType/role/tenantId
+    // If we have a userId but no userType, treat as main user by loading from User
+    if (!decodedUserType && decodedUserId) {
+      const user = await User.findById(decodedUserId).select('-password');
       if (!user || !user.isActive) {
-        console.log('🔐 Main user not found or inactive');
-        return res.status(401).json({
-          success: false,
-          message: 'Invalid token - user not found'
-        });
+        return res.status(401).json({ success: false, message: 'Invalid token - user not found' });
       }
-      
-      req.user.mainUser = user;
+      decodedUserType = 'main_user';
+      decodedRole = user.role;
+      decodedTenantId = user.tenantId || null;
+      req.user = { userId: decodedUserId, agentId: null, staffId: null, userType: decodedUserType, role: decodedRole, tenantId: decodedTenantId, tenantName: decodedTenantName, mainUser: user };
     } else {
-      // For mobile users (repo agents, office staff), skip user validation
-      // They are stored in tenant-specific collections, not the main User table
-      console.log('🔐 Mobile user type:', decoded.userType, 'ID:', decoded.userId || decoded.agentId || decoded.staffId);
-      console.log('🔐 Mobile user tenantId:', decoded.tenantId);
-      
-      // Mobile users should have tenantId in their token
-      if (!decoded.tenantId) {
-        console.log('🔐 Mobile user missing tenantId');
-        return res.status(401).json({
-          success: false,
-          message: 'Invalid token - missing tenant information'
-        });
+      // Set user info in request directly from token
+      req.user = {
+        userId: decodedUserId,
+        agentId: decoded.agentId || null,
+        staffId: decoded.staffId || null,
+        userType: decodedUserType,
+        role: decodedRole || 'agent',
+        tenantId: decodedTenantId,
+        tenantName: decodedTenantName
+      };
+
+      if (decodedUserType === 'main_user') {
+        // Verify main user still exists and is active
+        const user = await User.findById(decodedUserId).select('-password');
+        if (!user || !user.isActive) {
+          return res.status(401).json({ success: false, message: 'Invalid token - user not found' });
+        }
+        req.user.mainUser = user;
+      } else {
+        // For mobile users (repo agents, office staff), ensure tenant context exists
+        if (!decodedTenantId) {
+          return res.status(401).json({ success: false, message: 'Invalid token - missing tenant information' });
+        }
       }
     }
 
