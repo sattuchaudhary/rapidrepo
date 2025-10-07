@@ -71,6 +71,7 @@ const changePasswordValidation = [
 
 // Routes
 router.post('/register', registerValidation, authController.register);
+router.post('/register-superadmin', registerValidation, authController.registerSuperAdmin);
 router.post('/login', loginValidation, authController.login);
 router.get('/profile', authenticateToken, authController.getProfile);
 router.put('/profile', authenticateToken, updateProfileValidation, authController.updateProfile);

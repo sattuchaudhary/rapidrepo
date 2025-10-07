@@ -25,9 +25,9 @@ const register = async (req, res) => {
 
     const { firstName, lastName, email, password, tenantId, role = 'user' } = req.body;
 
-    // Check if this is the first user - make them super admin
-    const userCount = await User.countDocuments();
-    const finalRole = userCount === 0 ? 'super_admin' : role;
+    // Check if this is the first active super admin - make them super admin
+    const superAdminCount = await User.countDocuments({ role: 'super_admin', isActive: true });
+    const finalRole = superAdminCount === 0 ? 'super_admin' : role;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -321,8 +321,77 @@ const logout = async (req, res) => {
   }
 };
 
+// Register super admin (explicit super admin registration)
+const registerSuperAdmin = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation errors',
+        errors: errors.array()
+      });
+    }
+
+    const { firstName, lastName, email, password } = req.body;
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'User with this email already exists'
+      });
+    }
+
+    // Create super admin user
+    const user = new User({
+      firstName,
+      lastName,
+      email,
+      password,
+      role: 'super_admin',
+      tenantId: undefined // Super admin doesn't need tenant
+    });
+
+    await user.save();
+
+    // Generate token
+    const token = generateToken(user._id);
+
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Super admin registered successfully',
+      data: {
+        user: {
+          id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          role: user.role,
+          tenantId: user.tenantId,
+          isEmailVerified: user.isEmailVerified
+        },
+        token
+      }
+    });
+  } catch (error) {
+    console.error('Super admin registration error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Super admin registration failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
 module.exports = {
   register,
+  registerSuperAdmin,
   login,
   getProfile,
   updateProfile,

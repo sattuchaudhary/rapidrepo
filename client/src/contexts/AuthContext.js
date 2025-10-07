@@ -161,6 +161,28 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Register super admin (explicit endpoint)
+  const registerSuperAdmin = async (userData) => {
+    try {
+      dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: true });
+
+      const res = await axios.post('/api/auth/register-superadmin', userData);
+
+      dispatch({
+        type: AUTH_ACTIONS.LOGIN_SUCCESS,
+        payload: res.data.data
+      });
+
+      toast.success('Super admin registration successful!');
+      return { success: true };
+    } catch (error) {
+      const message = error.response?.data?.message || 'Super admin registration failed';
+      dispatch({ type: AUTH_ACTIONS.LOGIN_FAIL, payload: message });
+      toast.error(message);
+      return { success: false, message };
+    }
+  };
+
   // Logout user
   const logout = async () => {
     try {
@@ -230,6 +252,7 @@ export const AuthProvider = ({ children }) => {
     error: state.error,
     login,
     register,
+    registerSuperAdmin,
     logout,
     updateProfile,
     changePassword,

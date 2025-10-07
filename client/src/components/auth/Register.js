@@ -21,7 +21,7 @@ const Register = () => {
     confirmPassword: ''
   });
   const [error, setError] = useState('');
-  const { register } = useAuth();
+  const { registerSuperAdmin } = useAuth();
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -40,7 +40,7 @@ const Register = () => {
       return;
     }
 
-    const result = await register({
+    const result = await registerSuperAdmin({
       firstName: formData.firstName,
       lastName: formData.lastName,
       email: formData.email,

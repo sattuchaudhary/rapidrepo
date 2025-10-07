@@ -109,7 +109,31 @@ const MobileUpload = () => {
   const [pendingAction, setPendingAction] = useState(''); // 'preview' | 'upload'
 
   const standardFields = [
-    'reg_Number','cust_Name','location','bankName','Loan_No','Make','engineNumber','chassisNumber','emiAmount','pos','bkts','address','branchName','1st_Name','1st_Phone','2nd_Name','2nd_Phone','3rd_Name','3rd_Phone','zone','areaOffice','region','allocation','Model','productName'
+    'registrationNumber',
+    'customerName',
+    'location',
+    'bankName',
+    'agreementNumber',
+    'vehicleMake',
+    'engineNumber',
+    'chassisNumber',
+    'emiAmount',
+    'pos',
+    'bucketStatus',
+    'address',
+    'branchName',
+    'firstConfirmedName',
+    'firstConfirmerPhone',
+    'secondConfirmedName',
+    'secondConfirmerPhone',
+    'thirdConfirmerName',
+    'thirdConfirmerPhone',
+    'zone',
+    'areaOffice',
+    'region',
+    'allocation',
+    'vehicleModel',
+    'productName'
   ];
 
   const hasMappedFields = React.useMemo(() => {
@@ -1036,7 +1060,7 @@ const MobileUpload = () => {
               <TableHead>
                   <TableRow>
                     {headers.map(h => (
-                      <TableCell key={h} sx={{ minWidth: 150 }}>
+                      <TableCell key={h} sx={{ minWidth: 220 }}>
                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                           <Typography variant="caption" sx={{ 
                             fontWeight: 'bold',
@@ -1052,9 +1076,17 @@ const MobileUpload = () => {
                             value={columnMapping[h] || ''}
                             onChange={(e, val) => setColumnMapping({ ...columnMapping, [h]: val || '' })}
                             disabled={isLoadingUpload || isUploading}
+                            getOptionLabel={(opt) => (typeof opt === 'string' ? opt : String(opt || ''))}
+                            sx={{ width: '100%' }}
+                            slotProps={{
+                              paper: { sx: { maxWidth: 480, p: 0 } },
+                              popper: { sx: { maxWidth: 520 } }
+                            }}
+                            ListboxProps={{ sx: { whiteSpace: 'normal', wordBreak: 'break-word' } }}
                             renderInput={(params) => (
                               <TextField 
                                 {...params} 
+                                fullWidth
                                 label={columnMapping[h] ? "Mapped to" : "Not mapped"} 
                                 variant="outlined"
                                 color={columnMapping[h] ? "success" : "warning"}
@@ -1069,7 +1101,7 @@ const MobileUpload = () => {
                                     {/* Don't map (ignore column) */}
                                   </Typography>
                                 ) : (
-                                  <Box>
+                                  <Box sx={{ whiteSpace: 'normal' }}>
                                     <Typography variant="body2" sx={{ 
                                       fontWeight: option === 'registrationNumber' ? 'bold' : 'normal',
                                       color: option === 'registrationNumber' ? 'error.main' : 'inherit'
