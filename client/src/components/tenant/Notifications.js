@@ -42,7 +42,7 @@ const Notifications = () => {
       setLoading(true);
       setError('');
       const token = localStorage.getItem('token');
-      const res = await axios.get(`http://localhost:5000/api/history/notifications?page=${nextPage}&pageSize=20`, {
+      const res = await axios.get(`/api/history/notifications?page=${nextPage}&pageSize=20`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data?.success) {

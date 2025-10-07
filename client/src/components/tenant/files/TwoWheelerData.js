@@ -68,7 +68,7 @@ const TwoWheelerData = () => {
       setLoading(true);
       setError(null);
       const token = localStorage.getItem('token');
-      const response = await axios.get(`http://localhost:5000/api/tenant/data/two-wheeler?page=${page + 1}&limit=${rowsPerPage}&search=${search}`, {
+      const response = await axios.get(`/api/tenant/data/two-wheeler?page=${page + 1}&limit=${rowsPerPage}&search=${search}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -125,7 +125,7 @@ const TwoWheelerData = () => {
     if (window.confirm(`Are you sure you want to delete "${row.fileName}"?`)) {
       try {
         const token = localStorage.getItem('token');
-        await axios.delete(`http://localhost:5000/api/tenant/data/two-wheeler/${row._id}`, {
+        await axios.delete(`/api/tenant/data/two-wheeler/${row._id}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         fetchData(); // Refresh data
@@ -194,7 +194,7 @@ const TwoWheelerData = () => {
     for (const id of uploadIds) {
       try {
         const safeId = encodeURIComponent(id);
-        const res = await axios.get(`http://localhost:5000/api/tenant/data/file/${safeId}?page=1&limit=100000`, {
+        const res = await axios.get(`/api/tenant/data/file/${safeId}?page=1&limit=100000`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const rows = res?.data?.data || [];

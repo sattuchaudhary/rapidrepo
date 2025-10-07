@@ -144,7 +144,7 @@ const RepoAgentList = () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) return;
-      const res = await axios.get('http://localhost:5000/api/tenants/field-mapping', {
+      const res = await axios.get('/api/tenants/field-mapping', {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res?.data?.success) {
@@ -181,7 +181,7 @@ const RepoAgentList = () => {
       }
       
       console.log('Fetching repo agents from API...');
-      const response = await axios.get('http://localhost:5000/api/tenant/users/agents', {
+      const response = await axios.get('/api/tenant/users/agents', {
         params: { page: 1, limit: 1000 },
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -209,7 +209,7 @@ const RepoAgentList = () => {
     try {
       const token = localStorage.getItem('token');
       const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-      const response = await axios.put(`http://localhost:5000/api/tenant/users/agents/${agentId}/status`, { status: newStatus }, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await axios.put(`/api/tenant/users/agents/${agentId}/status`, { status: newStatus }, { headers: { Authorization: `Bearer ${token}` } });
       
       if (response.data.success) {
         setSuccess(`Agent status updated to ${newStatus}`);
@@ -226,7 +226,7 @@ const RepoAgentList = () => {
     if (!window.confirm('Are you sure you want to delete this repo agent?')) return;
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:5000/api/tenant/users/agents/${agentId}`, {
+      await axios.delete(`/api/tenant/users/agents/${agentId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSuccess('Repo agent deleted successfully');
@@ -360,7 +360,7 @@ const RepoAgentList = () => {
       console.log('Submitting repo agent data:', submitData);
       
       const token = localStorage.getItem('token');
-      const response = await axios.post('http://localhost:5000/api/tenant/users/agents', submitData, {
+      const response = await axios.post('/api/tenant/users/agents', submitData, {
         headers: { 
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -1058,7 +1058,7 @@ const RepoAgentList = () => {
             onClick={async () => {
               try {
                 const token = localStorage.getItem('token');
-                await axios.post('http://localhost:5000/api/tenants/field-mapping', fieldMapping, {
+                await axios.post('/api/tenants/field-mapping', fieldMapping, {
                   headers: { Authorization: `Bearer ${token}` }
                 });
                 // Reload mapping from server to ensure we reflect canonical saved state

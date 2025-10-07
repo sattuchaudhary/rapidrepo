@@ -97,7 +97,7 @@ const OfficeStaffList = () => {
       }
       
       console.log('Fetching office staff from API...');
-      const response = await axios.get('http://localhost:5000/api/tenant/users/staff', {
+      const response = await axios.get('/api/tenant/users/staff', {
         params: { page: 1, limit: 1000 },
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -127,7 +127,7 @@ const OfficeStaffList = () => {
     try {
       const token = localStorage.getItem('token');
       const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-      const response = await axios.put(`http://localhost:5000/api/tenant/users/staff/${staffId}/status`, { status: newStatus }, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await axios.put(`/api/tenant/users/staff/${staffId}/status`, { status: newStatus }, { headers: { Authorization: `Bearer ${token}` } });
       
       if (response.data.success) {
         setSuccess(`Staff status updated to ${newStatus}`);
@@ -144,7 +144,7 @@ const OfficeStaffList = () => {
     if (!window.confirm('Are you sure you want to delete this office staff?')) return;
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`http://localhost:5000/api/tenant/users/staff/${staffId}`, {
+      await axios.delete(`/api/tenant/users/staff/${staffId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSuccess('Office staff deleted successfully');
@@ -273,7 +273,7 @@ const OfficeStaffList = () => {
       console.log('Submitting office staff data:', submitData);
       
       const token = localStorage.getItem('token');
-      const response = await axios.post('http://localhost:5000/api/tenant/users/staff', submitData, {
+      const response = await axios.post('/api/tenant/users/staff', submitData, {
         headers: { 
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'

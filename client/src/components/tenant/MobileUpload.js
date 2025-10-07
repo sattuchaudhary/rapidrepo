@@ -166,7 +166,7 @@ const MobileUpload = () => {
         setIsLoadingBanks(true);
         setCurrentAction('Loading banks...');
         const token = localStorage.getItem('token');
-      const response = await axios.get('http://localhost:5000/api/tenant/clients', {
+      const response = await axios.get('/api/tenant/clients', {
         params: { limit: 'all' },
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -191,7 +191,7 @@ const MobileUpload = () => {
       setIsLoadingHistory(true);
       setCurrentAction('Loading upload history...');
       const token = localStorage.getItem('token');
-      const response = await axios.get('http://localhost:5000/api/tenant/mobile/history', {
+      const response = await axios.get('/api/tenant/mobile/history', {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.data.success) {
@@ -287,7 +287,7 @@ const MobileUpload = () => {
       }
 
       const token = localStorage.getItem('token');
-      const response = await axios.post('http://localhost:5000/api/tenant/mobile/preview', formData, {
+      const response = await axios.post('/api/tenant/mobile/preview', formData, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data'
@@ -406,7 +406,7 @@ const MobileUpload = () => {
       }
 
       const token = localStorage.getItem('token');
-      const response = await axios.post('http://localhost:5000/api/tenant/mobile/upload', formData, {
+      const response = await axios.post('/api/tenant/mobile/upload', formData, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data'
@@ -493,7 +493,7 @@ const MobileUpload = () => {
       }
 
       const token = localStorage.getItem('token');
-      const response = await axios.post('http://localhost:5000/api/tenant/mobile/preview', formData, {
+      const response = await axios.post('/api/tenant/mobile/preview', formData, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data'
@@ -561,7 +561,7 @@ const MobileUpload = () => {
       }
 
       const token = localStorage.getItem('token');
-      const response = await axios.post('http://localhost:5000/api/tenant/mobile/upload', formData, {
+      const response = await axios.post('/api/tenant/mobile/upload', formData, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data'

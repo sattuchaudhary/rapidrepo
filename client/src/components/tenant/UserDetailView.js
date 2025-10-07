@@ -25,8 +25,8 @@ const UserDetailView = ({ type }) => {
         const token = localStorage.getItem('token');
         const id = location.pathname.split('/').pop();
         const url = type === 'staff'
-          ? `http://localhost:5000/api/tenant/users/staff/${id}`
-          : `http://localhost:5000/api/tenant/users/agents/${id}`;
+          ? `/api/tenant/users/staff/${id}`
+          : `/api/tenant/users/agents/${id}`;
         const res = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
         if (res.data.success) setData(res.data.data);
         else setError('Failed to fetch details');
@@ -50,8 +50,8 @@ const UserDetailView = ({ type }) => {
       const token = localStorage.getItem('token');
       const id = location.pathname.split('/').pop();
       const url = type === 'staff'
-        ? `http://localhost:5000/api/tenant/users/staff/${id}`
-        : `http://localhost:5000/api/tenant/users/agents/${id}`;
+        ? `/api/tenant/users/staff/${id}`
+        : `/api/tenant/users/agents/${id}`;
       const payload = { ...data };
       delete payload._id; delete payload.__v; delete payload.createdAt; delete payload.updatedAt;
       const res = await axios.put(url, payload, { headers: { Authorization: `Bearer ${token}` } });

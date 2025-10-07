@@ -67,7 +67,7 @@ const TenantProfile = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const response = await axios.get('http://localhost:5000/api/tenant/profile', {
+      const response = await axios.get('/api/tenant/profile', {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -107,7 +107,7 @@ const TenantProfile = () => {
   const handleEditSave = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.put('http://localhost:5000/api/tenant/profile', editForm, {
+      const response = await axios.put('/api/tenant/profile', editForm, {
         headers: { Authorization: `Bearer ${token}` }
       });
       

@@ -11,7 +11,7 @@ const UserStatistics = () => {
     try {
       setLoading(true); setError('');
       const token = localStorage.getItem('token');
-      const res = await axios.get('http://localhost:5000/api/tenant/users/agents/stats/search', {
+      const res = await axios.get('/api/tenant/users/agents/stats/search', {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined
       });
       setRows(res.data?.data || []);

@@ -68,7 +68,7 @@ const ClientManagement = () => {
         return;
       }
       
-      const response = await axios.get('http://localhost:5000/api/tenant/clients', {
+      const response = await axios.get('/api/tenant/clients', {
         params: { limit: 'all' },
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -129,7 +129,7 @@ const ClientManagement = () => {
 
       if (editingClient) {
         const token = localStorage.getItem('token');
-        const response = await axios.put(`http://localhost:5000/api/tenant/clients/${editingClient._id || editingClient.id}`,
+        const response = await axios.put(`/api/tenant/clients/${editingClient._id || editingClient.id}`,
           { name: formData.name },
           { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
         );
@@ -140,7 +140,7 @@ const ClientManagement = () => {
         }
       } else {
         const token = localStorage.getItem('token');
-        const response = await axios.post('http://localhost:5000/api/tenant/clients',
+        const response = await axios.post('/api/tenant/clients',
           { name: formData.name },
           { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
         );
@@ -167,7 +167,7 @@ const ClientManagement = () => {
       
       // Call backend API to delete client database
       const token = localStorage.getItem('token');
-      const response = await axios.delete(`http://localhost:5000/api/tenant/clients/${clientId}`, {
+      const response = await axios.delete(`/api/tenant/clients/${clientId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       

@@ -56,7 +56,7 @@ const TenantSettings = () => {
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No authentication token found');
       
-      const res = await axios.get('http://localhost:5000/api/tenants/settings', {
+      const res = await axios.get('/api/tenants/settings', {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -80,7 +80,7 @@ const TenantSettings = () => {
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No authentication token found');
       
-      const res = await axios.put('http://localhost:5000/api/tenants/settings', settings, {
+      const res = await axios.put('/api/tenants/settings', settings, {
         headers: { Authorization: `Bearer ${token}` }
       });
       

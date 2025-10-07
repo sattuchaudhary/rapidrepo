@@ -67,7 +67,7 @@ const SearchResults = () => {
       const token = localStorage.getItem('token');
       const clean = sanitizeRegInput(query);
       const qs = new URLSearchParams({ q: clean, type: 'reg', limit: '400' });
-      const res = await axios.get(`http://localhost:5000/api/tenant/data/search?${qs}`, {
+      const res = await axios.get(`/api/tenant/data/search?${qs}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data?.success) {
@@ -110,7 +110,7 @@ const SearchResults = () => {
       setDetailLoading(true);
       setDetailOpen(true);
       const token = localStorage.getItem('token');
-      const res = await axios.get(`http://localhost:5000/api/tenant/data/vehicle/${id}`, {
+      const res = await axios.get(`/api/tenant/data/vehicle/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data?.success) {
@@ -128,7 +128,7 @@ const SearchResults = () => {
   const updateStatus = async (id, status) => {
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`http://localhost:5000/api/tenant/data/vehicle/${id}/status`, { status }, {
+      await axios.put(`/api/tenant/data/vehicle/${id}/status`, { status }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (vehicleDetail?._id === id) {

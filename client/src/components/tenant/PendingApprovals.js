@@ -51,7 +51,7 @@ const PendingApprovals = () => {
       }
       
       console.log('Fetching pending approvals from API...');
-      const response = await axios.get('http://localhost:5000/api/tenant/users/pending', {
+      const response = await axios.get('/api/tenant/users/pending', {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -78,7 +78,7 @@ const PendingApprovals = () => {
     try {
       const token = localStorage.getItem('token');
       
-      const response = await axios.put(`http://localhost:5000/api/tenant/users/${userId}/approve`, {}, {
+      const response = await axios.put(`/api/tenant/users/${userId}/approve`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -97,7 +97,7 @@ const PendingApprovals = () => {
     try {
       const token = localStorage.getItem('token');
       
-      const response = await axios.put(`http://localhost:5000/api/tenant/users/${userId}/reject`, {}, {
+      const response = await axios.put(`/api/tenant/users/${userId}/reject`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       

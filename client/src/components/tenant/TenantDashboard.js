@@ -60,7 +60,7 @@ const TenantDashboard = () => {
       setError('');
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No auth token found');
-      const res = await axios.get('http://localhost:5000/api/tenant/data/dashboard-stats', {
+      const res = await axios.get('/api/tenant/data/dashboard-stats', {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data?.success) {

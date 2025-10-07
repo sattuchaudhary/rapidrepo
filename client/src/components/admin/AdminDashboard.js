@@ -52,8 +52,8 @@ const AdminDashboard = () => {
     try {
       setLoading(true);
       const [statsResponse, tenantsResponse] = await Promise.all([
-        axios.get('http://localhost:5000/api/admin/dashboard/stats'),
-        axios.get('http://localhost:5000/api/tenants?limit=5')
+        axios.get('/api/admin/dashboard/stats'),
+        axios.get('/api/tenants?limit=5')
       ]);
 
       setStats({

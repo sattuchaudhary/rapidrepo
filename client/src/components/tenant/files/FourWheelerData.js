@@ -67,7 +67,7 @@ const FourWheelerData = () => {
       setLoading(true);
       setError(null);
       const token = localStorage.getItem('token');
-      const response = await axios.get(`http://localhost:5000/api/tenant/data/four-wheeler?page=${page + 1}&limit=${rowsPerPage}&search=${search}`, {
+      const response = await axios.get(`/api/tenant/data/four-wheeler?page=${page + 1}&limit=${rowsPerPage}&search=${search}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -110,7 +110,7 @@ const FourWheelerData = () => {
     try {
       const token = localStorage.getItem('token');
       const safeId = encodeURIComponent(row._id);
-      await axios.delete(`http://localhost:5000/api/tenant/data/file/${safeId}`, {
+      await axios.delete(`/api/tenant/data/file/${safeId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       // Refresh list
@@ -189,7 +189,7 @@ const FourWheelerData = () => {
     for (const id of uploadIds) {
       try {
         const safeId = encodeURIComponent(id);
-        const res = await axios.get(`http://localhost:5000/api/tenant/data/file/${safeId}?page=1&limit=100000`, {
+        const res = await axios.get(`/api/tenant/data/file/${safeId}?page=1&limit=100000`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         const rows = res?.data?.data || [];

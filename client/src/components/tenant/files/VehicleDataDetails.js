@@ -83,7 +83,7 @@ const VehicleDataDetails = () => {
       });
 
       const safeId = encodeURIComponent(uploadId || '');
-      const response = await axios.get(`http://localhost:5000/api/tenant/data/file/${safeId}?${params}`, {
+      const response = await axios.get(`/api/tenant/data/file/${safeId}?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -122,7 +122,7 @@ const VehicleDataDetails = () => {
     if (window.confirm('Are you sure you want to delete this vehicle record?')) {
       try {
         const token = localStorage.getItem('token');
-        await axios.delete(`http://localhost:5000/api/tenant/data/vehicle/${vehicleId}`, {
+        await axios.delete(`/api/tenant/data/vehicle/${vehicleId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         fetchData(); // Refresh data
@@ -165,7 +165,7 @@ const VehicleDataDetails = () => {
     try {
       setDetailLoading(true);
       const token = localStorage.getItem('token');
-      const res = await axios.get(`http://localhost:5000/api/tenant/data/vehicle/${vehicleId}` , {
+      const res = await axios.get(`/api/tenant/data/vehicle/${vehicleId}` , {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res?.data?.success) {
@@ -204,7 +204,7 @@ const VehicleDataDetails = () => {
         registrationNumber
       });
       const safeId = encodeURIComponent(uploadId || '');
-      const res = await axios.get(`http://localhost:5000/api/tenant/data/file/${safeId}?${params}`, {
+      const res = await axios.get(`/api/tenant/data/file/${safeId}?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const rows = res?.data?.data || [];
@@ -564,19 +564,19 @@ const VehicleDataDetails = () => {
           {!!vehicleDetail && (
             <Box sx={{ display: 'flex', gap: 1, px: 2, py: 1, width: '100%' }}>
               <Button color="inherit" variant="contained" onClick={async ()=>{
-                try { const token = localStorage.getItem('token'); await axios.put(`http://localhost:5000/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Pending' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Pending' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
+                try { const token = localStorage.getItem('token'); await axios.put(`/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Pending' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Pending' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
               }}>Pending</Button>
               <Button color="warning" variant="contained" onClick={async ()=>{
-                try { const token = localStorage.getItem('token'); await axios.put(`http://localhost:5000/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Hold' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Hold' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
+                try { const token = localStorage.getItem('token'); await axios.put(`/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Hold' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Hold' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
               }}>Hold</Button>
               <Button color="secondary" variant="contained" onClick={async ()=>{
-                try { const token = localStorage.getItem('token'); await axios.put(`http://localhost:5000/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'In Yard' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'In Yard' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
+                try { const token = localStorage.getItem('token'); await axios.put(`/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'In Yard' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'In Yard' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
               }}>In Yard</Button>
               <Button color="success" variant="contained" onClick={async ()=>{
-                try { const token = localStorage.getItem('token'); await axios.put(`http://localhost:5000/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Released' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Released' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
+                try { const token = localStorage.getItem('token'); await axios.put(`/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Released' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Released' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
               }}>Release</Button>
               <Button color="error" variant="contained" onClick={async ()=>{
-                try { const token = localStorage.getItem('token'); await axios.put(`http://localhost:5000/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Cancelled' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Cancelled' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
+                try { const token = localStorage.getItem('token'); await axios.put(`/api/tenant/data/vehicle/${vehicleDetail._id}/status`, { status: 'Cancelled' }, { headers: { Authorization: `Bearer ${token}` } }); setVehicleDetail({ ...vehicleDetail, status: 'Cancelled' }); } catch(e){ alert(e?.response?.data?.message || 'Failed to update status'); }
               }}>Cancel</Button>
               <Box sx={{ flex: 1 }} />
               <Button onClick={() => setDetailOpen(false)}>Close</Button>

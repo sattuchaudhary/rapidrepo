@@ -87,7 +87,7 @@ const UserManagement = () => {
         isActive: statusFilter
       });
 
-      const response = await axios.get(`http://localhost:5000/api/admin/users?${params}`);
+      const response = await axios.get(`/api/admin/users?${params}`);
       setUsers(response.data.data.users);
       setTotalUsers(response.data.data.pagination.totalUsers);
     } catch (error) {
@@ -100,7 +100,7 @@ const UserManagement = () => {
 
   const fetchTenants = useCallback(async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/tenants?limit=100');
+      const response = await axios.get('/api/tenants?limit=100');
       setTenants(response.data.data.tenants);
     } catch (error) {
       console.error('Error fetching tenants:', error);
@@ -162,11 +162,11 @@ const UserManagement = () => {
         const updateData = { ...formData };
         if (!updateData.password) delete updateData.password;
         
-        await axios.put(`http://localhost:5000/api/admin/users/${editingUser._id}`, updateData);
+        await axios.put(`/api/admin/users/${editingUser._id}`, updateData);
         setSuccess('User updated successfully');
       } else {
         // Create user
-        await axios.post('http://localhost:5000/api/admin/users', formData);
+        await axios.post('/api/admin/users', formData);
         setSuccess('User created successfully');
       }
       
@@ -185,7 +185,7 @@ const UserManagement = () => {
     
     try {
       setLoading(true);
-      await axios.delete(`http://localhost:5000/api/admin/users/${userId}`);
+      await axios.delete(`/api/admin/users/${userId}`);
       setSuccess('User deleted successfully');
       fetchUsers();
     } catch (error) {
@@ -199,7 +199,7 @@ const UserManagement = () => {
   const handleToggleStatus = async (userId, currentStatus) => {
     try {
       setLoading(true);
-      await axios.put(`http://localhost:5000/api/admin/users/${userId}`, {
+      await axios.put(`/api/admin/users/${userId}`, {
         isActive: !currentStatus
       });
       setSuccess(`User ${currentStatus ? 'deactivated' : 'activated'} successfully`);

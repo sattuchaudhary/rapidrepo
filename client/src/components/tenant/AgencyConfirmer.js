@@ -44,7 +44,7 @@ const AgencyConfirmer = () => {
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No authentication token found');
       
-      const res = await axios.get('http://localhost:5000/api/tenant/agency-confirmers', {
+      const res = await axios.get('/api/tenant/agency-confirmers', {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -87,7 +87,7 @@ const AgencyConfirmer = () => {
         }
       }
       
-      const res = await axios.put('http://localhost:5000/api/tenant/agency-confirmers', 
+      const res = await axios.put('/api/tenant/agency-confirmers', 
         { agencyConfirmers: validConfirmers },
         { headers: { Authorization: `Bearer ${token}` } }
       );
