@@ -17,6 +17,7 @@ import SyncScreen from './screens/SyncScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import JSONExportScreen from './screens/JSONExportScreen';
 import PaymentScreen from './screens/PaymentScreen';
+import BulkOfflineDownloadScreen from './screens/BulkOfflineDownloadScreen';
 import GlobalSyncOverlay from './components/GlobalSyncOverlay';
 import UpdateNotification from './components/UpdateNotification';
 import FastSplashScreen from './components/FastSplashScreen';
@@ -203,6 +204,7 @@ export default function App() {
           <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: true, title: 'Sync Settings' }} />
           <Stack.Screen name="OfflineData" component={OfflineDataBrowser} options={{ headerShown: true, title: 'Offline Data' }} />
           <Stack.Screen name="JSONExport" component={JSONExportScreen} options={{ headerShown: true, title: 'Export JSON' }} />
+          <Stack.Screen name="BulkDownload" component={BulkOfflineDownloadScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Payment" component={PaymentScreen} options={{ headerShown: false }} />
         </Stack.Navigator>
       )}

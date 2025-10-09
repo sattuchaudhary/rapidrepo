@@ -18,8 +18,8 @@ const Dashboard = () => {
         Welcome, {user?.firstName}!
       </Typography>
       
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6} lg={3}>
+      <Grid container spacing={4}>
+        <Grid item xs={12} md={6} lg={4}>
           <Card>
             <CardHeader title="Total Users" />
             <CardContent>

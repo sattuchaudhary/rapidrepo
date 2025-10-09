@@ -1,7 +1,16 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
+let _overrideBaseUrl = null;
+export const setBaseURLOverride = (url) => {
+  try {
+    _overrideBaseUrl = typeof url === 'string' && url.trim().length > 0 ? url.replace(/\/$/, '') : null;
+    if (_overrideBaseUrl) console.log('Using override API URL:', _overrideBaseUrl);
+  } catch (_) { _overrideBaseUrl = null; }
+};
+
 export const getBaseURL = () => {
+  if (_overrideBaseUrl) return _overrideBaseUrl;
   // Check for environment variable first
   const envUrl = process.env.EXPO_PUBLIC_API_URL || process.env.API_URL;
   if (envUrl) {
@@ -19,7 +28,7 @@ export const getBaseURL = () => {
   // For web platform
   if (Platform.OS === 'web') {
     console.log('Using web platform URL');
-    return 'https://api.rapidbuddy.cloud';
+    return 'https://rapidbuddy.cloud';
   }
 
   // For development, try to get the host from Expo's debugger host
@@ -36,13 +45,13 @@ export const getBaseURL = () => {
     // For development, use VPS URL
     if (isIp) {
       console.log('Using VPS URL for development');
-      return 'https://api.rapidbuddy.cloud';
+      return 'https://rapidbuddy.cloud';
     }
   }
 
   // Default production API URL
   console.log('Using default production URL');
-  return 'https://api.rapidbuddy.cloud';
+  return 'https://rapidbuddy.cloud';
 };
 
 

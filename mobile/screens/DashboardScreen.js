@@ -9,7 +9,7 @@ import * as SQLite from 'expo-sqlite';
 import axios from 'axios';
 import { getBaseURL } from '../utils/config';
 import * as FileSystem from 'expo-file-system/legacy';
-import { singleClickPerFileSync } from '../utils/fileSync';
+import { singleClickPerFileSync, getPerFileSyncStatus } from '../utils/fileSync';
 import UpdateNotification from '../components/UpdateNotification';
 import versionManager from '../utils/versionManager';
 // removed: background task imports not needed on simplified dashboard
@@ -1230,38 +1230,17 @@ export default function DashboardScreen({ navigation }) {
 
   const checkForNewRecords = async () => {
     try {
-      const token = await SecureStore.getItemAsync('token');
-      if (!token) {
-        setNeedsSync(false);
-        return;
+      // Lightweight local heuristic to avoid noisy network retries
+      const local = await countVehicles();
+      const shouldSync = !local || local <= 0; // if no local data, recommend sync
+      setNeedsSync(!!shouldSync);
+      if (shouldSync) {
+        console.log(`📊 Local-only sync check: no local data (${local}), needsSync=true`);
       }
-
-      // Get server total count
-      const serverStatsRes = await axios.get(`${getBaseURL()}/api/bulk-download/simple-dump`, {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { limit: 1, offset: 0 },
-        timeout: 30000
-      });
-
-      if (!serverStatsRes.data.success) {
-        setNeedsSync(false);
-        return;
-      }
-
-      const serverTotal = serverStatsRes.data.totalRecords;
-      const localCount = await countVehicles();
-      
-      // Check if we need to sync - now using 1 record threshold
-      const difference = Math.abs(serverTotal - localCount);
-      
-      const shouldSync = difference > 1;
-      setNeedsSync(shouldSync);
-      
-      console.log(`📊 Sync check: Server=${serverTotal}, Local=${localCount}, Difference=${difference}, NeedsSync=${shouldSync}`);
-      
+      // Note: actual per-file status will be determined during sync; we allow manual trigger regardless
     } catch (error) {
-      console.error('Error checking for new records:', error);
-      setNeedsSync(false);
+      // On any error, keep sync available to the user
+      setNeedsSync(true);
     }
   };
 
@@ -1388,25 +1367,23 @@ export default function DashboardScreen({ navigation }) {
         </Text>
       </Animated.View>
 
-      {/* Stats cards (hidden as requested) */}
-      {false && (
-        <Animated.View style={[styles.statsGrid, { opacity: contentFade, transform: [{ translateY: contentSlide }] }]}>
-          <View style={[styles.statCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
-            <View>
-              <Text style={[styles.statLabel, { color: theme.statLabel }]}>Local Records</Text>
-              <Text style={[styles.statValue, { color: theme.textPrimary }]}>{String((localCount || 0) * dataMultiplier)}</Text>
-            </View>
-            <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>🗃️</Text></View>
+      {/* Stats cards */}
+      <Animated.View style={[styles.statsGrid, { opacity: contentFade, transform: [{ translateY: contentSlide }] }]}>
+        <View style={[styles.statCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
+          <View>
+            <Text style={[styles.statLabel, { color: theme.statLabel }]}>Local Records</Text>
+            <Text style={[styles.statValue, { color: theme.textPrimary }]}>{String((localCount || 0) * dataMultiplier)}</Text>
           </View>
-          <View style={[styles.statCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
-            <View>
-              <Text style={[styles.statLabel, { color: theme.statLabel }]}>Sync Status</Text>
-              <Text style={[styles.statValue, { color: theme.textPrimary }]}>{isOfflineMode ? 'Offline' : 'Online'}</Text>
-            </View>
-            <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>{isOfflineMode ? '📴' : '📶'}</Text></View>
+          <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>🗃️</Text></View>
+        </View>
+        <View style={[styles.statCard, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
+          <View>
+            <Text style={[styles.statLabel, { color: theme.statLabel }]}>Sync Status</Text>
+            <Text style={[styles.statValue, { color: theme.textPrimary }]}>{isOfflineMode ? 'Offline' : 'Online'}</Text>
           </View>
-        </Animated.View>
-      )}
+          <View style={styles.statIconBox}><Text style={{ fontSize: 18 }}>{isOfflineMode ? '📴' : '📶'}</Text></View>
+        </View>
+      </Animated.View>
 
       {/* Sync Progress Card - Show only when sync is in progress */}
       {syncProgress.currentBatch > 0 && (
@@ -1538,40 +1515,7 @@ export default function DashboardScreen({ navigation }) {
           </View>
         </View>
 
-        {/* Action Buttons Section */}
-        <View style={styles.actionSection}>
-          <LinearGradient 
-            colors={needsSync ? ["#EF4444", "#DC2626"] : (isSyncComplete ? ["#10B981", "#059669"] : ["#3B82F6", "#1D4ED8"])} 
-            start={{ x: 0, y: 0 }} 
-            end={{ x: 1, y: 1 }} 
-            style={[styles.fullWidthActionGradient, downloading && { opacity: 0.7 }]}
-          >
-            <TouchableOpacity
-              style={styles.fullWidthActionBtn}
-              onPress={async () => {
-                if (downloading) return;
-                if (!needsSync) return;
-                await refreshLocalCount();
-                await syncPerFile();
-              }}
-              disabled={downloading || !needsSync}
-            >
-              <View style={styles.actionBtnContent}>
-                <Text style={styles.actionBtnIcon}>
-                  {downloading ? '⏳' : '🔄'}
-                </Text>
-                <View style={styles.actionBtnTextContainer}>
-                  <Text style={[styles.actionBtnTitle, { color: '#FFFFFF' }]}>
-                    {downloading ? 'Syncing...' : (needsSync ? 'Sync Data' : 'Up to date')}
-                  </Text>
-                  <Text style={[styles.actionBtnSubtitle, { color: 'rgba(255,255,255,0.9)' }]}>
-                    {downloading ? 'Please wait' : (needsSync ? 'New data available' : 'No new data')}
-                  </Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          </LinearGradient>
-        </View>
+        {/* Action Buttons Section removed (handled by Bulk Download screen) */}
       </View>
 
       {/* Loading Overlay */}
@@ -1635,8 +1579,8 @@ export default function DashboardScreen({ navigation }) {
             <TouchableOpacity style={[styles.drawerItem, { backgroundColor: 'transparent' }]} onPress={() => { setDrawerOpen(false); navigation.navigate('IDCard'); }}>
               <Text style={[styles.drawerItemText, { color: theme.drawerText }]}>🆔  My ID Card</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.drawerItem, { backgroundColor: 'transparent' }]} onPress={() => { setDrawerOpen(false); navigation.navigate('Sync'); }}>
-              <Text style={[styles.drawerItemText, { color: theme.drawerText }]}>🔄  Data Sync</Text>
+            <TouchableOpacity style={[styles.drawerItem, { backgroundColor: 'transparent' }]} onPress={() => { setDrawerOpen(false); navigation.navigate('BulkDownload'); }}>
+              <Text style={[styles.drawerItemText, { color: theme.drawerText }]}>⬇️  Bulk Offline Download</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.drawerItem, { backgroundColor: 'transparent' }]} onPress={() => { setDrawerOpen(false); navigation.navigate('Settings'); }}>
               <Text style={[styles.drawerItemText, { color: theme.drawerText }]}>⚙️  Settings</Text>

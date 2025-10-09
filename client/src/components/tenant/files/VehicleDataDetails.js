@@ -68,6 +68,23 @@ const VehicleDataDetails = () => {
   const [detailError, setDetailError] = useState('');
   const [vehicleDetail, setVehicleDetail] = useState(null);
 
+  // UI helpers
+  const StatusColor = (status) => {
+    const s = String(status || '').toLowerCase();
+    if (s === 'released' || s === 'ok') return 'success';
+    if (s === 'in yard' || s === 'inyard') return 'secondary';
+    if (s === 'hold') return 'warning';
+    if (s === 'cancelled' || s === 'canceled') return 'error';
+    return 'warning';
+  };
+
+  const FieldRow = ({ label, value }) => (
+    <Box sx={{ display: 'flex', gap: 1, mb: 0.75, alignItems: 'baseline' }}>
+      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 140 }}>{label}:</Typography>
+      <Typography variant="body2" fontWeight="medium" sx={{ wordBreak: 'break-word' }}>{value}</Typography>
+    </Box>
+  );
+
   // Fetch data from API
   const fetchData = async () => {
     try {
@@ -492,9 +509,9 @@ const VehicleDataDetails = () => {
       </Paper>
 
       {/* Vehicle detail drawer/dialog */}
-      <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} maxWidth="lg" fullWidth>
-        <DialogTitle>Vehicle Detail</DialogTitle>
-        <DialogContent dividers>
+      <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} maxWidth="xl" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>Vehicle Detail</DialogTitle>
+        <DialogContent dividers sx={{ bgcolor: 'grey.50', p: 2 }}>
           {detailLoading && (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
               <CircularProgress />
@@ -505,56 +522,87 @@ const VehicleDataDetails = () => {
           )}
           {!!vehicleDetail && !detailLoading && (
             <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                <Typography variant="body2" color="text.secondary">Registration Number:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.regNo || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Agreement Number:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.agreementNo || vehicleDetail.loanNo || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Make:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.make || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Engine Number:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.engineNo || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Product Name:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.productName || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>EMI Amount:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.emiAmount || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Branch:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.branch || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>File Name:</Typography>
-                <Typography variant="body1" fontWeight="medium">{uploadDetails?.fileName || '-'}</Typography>
+              <Grid item xs={12}>
+                <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 700 }}>Basic Details</Typography>
+                  <Chip label={vehicleDetail.status || 'Unknown'} size="small" color={StatusColor(vehicleDetail.status)} sx={{ ml: 'auto' }} />
+                </Paper>
               </Grid>
-              <Grid item xs={12} md={6}>
-                <Typography variant="body2" color="text.secondary">Status:</Typography>
-                <Chip label={vehicleDetail.status || 'Unknown'} size="small" color={vehicleDetail.status === 'ok' ? 'success' : 'warning'} />
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Customer Name:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.customerName || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Bank Name:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.bank || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Chassis Number:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.chassisNo || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Model:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.model || '-'}</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Upload Date:</Typography>
-                <Typography variant="body1" fontWeight="medium">{uploadDetails?.createdAt ? new Date(uploadDetails.createdAt).toLocaleDateString() : '-'}</Typography>
+
+              <Grid item xs={12}>
+                <Paper variant="outlined" sx={{ p: 1.5 }}>
+                  <Grid container spacing={1}>
+                    <Grid item xs={12} md={4}><FieldRow label="Registration Number" value={vehicleDetail.regNo || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Agreement Number" value={vehicleDetail.agreementNo || vehicleDetail.loanNo || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Make" value={vehicleDetail.make || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Engine Number" value={vehicleDetail.engineNo || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Product Name" value={vehicleDetail.productName || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="EMI Amount" value={vehicleDetail.emiAmount || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Branch" value={vehicleDetail.branch || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="File Name" value={uploadDetails?.fileName || vehicleDetail.fileName || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Customer Name" value={vehicleDetail.customerName || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Bank Name" value={vehicleDetail.bank || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Chassis Number" value={vehicleDetail.chassisNo || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Model" value={vehicleDetail.model || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Upload Date" value={(vehicleDetail.uploadDate || uploadDetails?.createdAt) ? new Date(vehicleDetail.uploadDate || uploadDetails.createdAt).toLocaleDateString() : 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Address" value={vehicleDetail.address || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="POS" value={vehicleDetail.pos || 'N/A'} /></Grid>
+                    <Grid item xs={12} md={4}><FieldRow label="Season" value={vehicleDetail.season || 'N/A'} /></Grid>
+                  </Grid>
+                </Paper>
               </Grid>
-              {/* Dynamic extra fields from raw document */}
+
+              {(vehicleDetail.inYard || vehicleDetail.yardName || vehicleDetail.yardLocation) && (
+                <Grid item xs={12}>
+                  <Paper variant="outlined" sx={{ p: 1.5 }}>
+                    <Typography variant="subtitle2" gutterBottom>Yard Info</Typography>
+                    <Grid container>
+                      <Grid item xs={12} md={4}><FieldRow label="In Yard" value={vehicleDetail.inYard || 'N/A'} /></Grid>
+                      <Grid item xs={12} md={4}><FieldRow label="Yard Name" value={vehicleDetail.yardName || 'N/A'} /></Grid>
+                      <Grid item xs={12} md={4}><FieldRow label="Yard Location" value={vehicleDetail.yardLocation || 'N/A'} /></Grid>
+                    </Grid>
+                  </Paper>
+                </Grid>
+              )}
+
+              {(vehicleDetail.firstConfirmerName || vehicleDetail.firstConfirmerPhone || vehicleDetail.secondConfirmerName || vehicleDetail.secondConfirmerPhone || vehicleDetail.thirdConfirmerName || vehicleDetail.thirdConfirmerPhone) && (
+                <Grid item xs={12}>
+                  <Paper variant="outlined" sx={{ p: 1.5 }}>
+                    <Typography variant="subtitle2" gutterBottom>Confirmer Details</Typography>
+                    <Grid container spacing={1}>
+                      <Grid item xs={12} md={4}>
+                        <FieldRow label="First Confirmer Name" value={vehicleDetail.firstConfirmerName || 'N/A'} />
+                        <FieldRow label="First Confirmer Phone" value={vehicleDetail.firstConfirmerPhone || 'N/A'} />
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <FieldRow label="Second Confirmer Name" value={vehicleDetail.secondConfirmerName || 'N/A'} />
+                        <FieldRow label="Second Confirmer Phone" value={vehicleDetail.secondConfirmerPhone || 'N/A'} />
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <FieldRow label="Third Confirmer Name" value={vehicleDetail.thirdConfirmerName || 'N/A'} />
+                        <FieldRow label="Third Confirmer Phone" value={vehicleDetail.thirdConfirmerPhone || 'N/A'} />
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                </Grid>
+              )}
+
               {vehicleDetail?.raw && (
                 <Grid item xs={12}>
-                  <Box sx={{ mt: 2 }}>
+                  <Paper variant="outlined" sx={{ p: 1.5 }}>
                     <Typography variant="subtitle2" gutterBottom>Additional Fields</Typography>
                     <Grid container spacing={1}>
-                      {Object.entries(vehicleDetail.raw)
+                      {Object.entries(vehicleDetail.raw || {})
                         .filter(([k]) => ![
                           '_id','__v','registrationNumber','chassisNumber','agreementNumber','bankName','vehicleMake','customerName','address','branchName','status','engineNumber','engineNo','productName','emiAmount','pos','POS','model','vehicleModel','uploadDate','createdAt','bucket','season','seasoning','fileName'
                         ].includes(k))
                         .map(([key, value]) => (
                           <Grid key={key} item xs={12} md={4}>
-                            <Typography variant="body2" color="text.secondary">{key}:</Typography>
-                            <Typography variant="body1" fontWeight="medium">{String(value ?? '-')}</Typography>
+                            <FieldRow label={key} value={String(value ?? 'N/A')} />
                           </Grid>
                         ))}
                     </Grid>
-                  </Box>
+                  </Paper>
                 </Grid>
               )}
             </Grid>

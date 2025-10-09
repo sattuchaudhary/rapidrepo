@@ -265,33 +265,33 @@ const SearchResults = () => {
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
                 <Typography variant="body2" color="text.secondary">Registration Number:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.regNo || '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.regNo || 'N/A'}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Agreement Number:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.loanNo || '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.loanNo || 'N/A'}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Make:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.make || '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.make || 'N/A'}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Engine Number:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.engineNo || '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.engineNo || 'N/A'}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>EMI Amount:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.emiAmount || '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.emiAmount || 'N/A'}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Bucket:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.bucket || '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.bucket || 'N/A'}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>File Name:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.fileName || '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.fileName || 'N/A'}</Typography>
               </Grid>
               <Grid item xs={12} md={6}>
                 <Typography variant="body2" color="text.secondary">Status:</Typography>
                 <Chip label={vehicleDetail.status || 'Unknown'} size="small" color={vehicleDetail.status === 'Released' ? 'success' : 'warning'} />
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Customer Name:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.customerName || '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.customerName || 'N/A'}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Bank Name:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.bank || '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.bank || 'N/A'}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Chassis Number:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.chassisNo || '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.chassisNo || 'N/A'}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Model:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.model || '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.model || 'N/A'}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Upload Date:</Typography>
-                <Typography variant="body1" fontWeight="medium">{vehicleDetail.uploadDate ? new Date(vehicleDetail.uploadDate).toLocaleDateString() : '-'}</Typography>
+                <Typography variant="body1" fontWeight="medium">{vehicleDetail.uploadDate ? new Date(vehicleDetail.uploadDate).toLocaleDateString() : 'N/A'}</Typography>
               </Grid>
               {/* Dynamic extra fields from raw document */}
               {vehicleDetail?.raw && (
@@ -299,14 +299,14 @@ const SearchResults = () => {
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="subtitle2" gutterBottom>Additional Fields</Typography>
                     <Grid container spacing={1}>
-                      {Object.entries(vehicleDetail.raw)
+                      {Object.entries(vehicleDetail.raw || {})
                         .filter(([k]) => ![
                           '_id','__v','registrationNumber','chassisNumber','agreementNumber','bankName','vehicleMake','customerName','address','branchName','status','engineNumber','engineNo','productName','emiAmount','pos','POS','model','vehicleModel','uploadDate','createdAt','bucket','season','seasoning','fileName'
                         ].includes(k))
                         .map(([key, value]) => (
                           <Grid key={key} item xs={12} md={4}>
                             <Typography variant="body2" color="text.secondary">{key}:</Typography>
-                            <Typography variant="body1" fontWeight="medium">{String(value ?? '-')}</Typography>
+                            <Typography variant="body1" fontWeight="medium">{String(value ?? 'N/A')}</Typography>
                           </Grid>
                         ))}
                     </Grid>

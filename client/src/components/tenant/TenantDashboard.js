@@ -127,8 +127,8 @@ const TenantDashboard = () => {
       </Box>
 
       {/* Overview Cards - Top Row */}
-       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
+       <Grid container spacing={4} sx={{ mb: 4 }}>
+        <Grid item xs={12} sm={6} md={4}>
           <Card sx={{ 
             height: '100%', 
             background: 'linear-gradient(135deg, #cfc7c7ff 0%, #f8f9fa 100%)',
